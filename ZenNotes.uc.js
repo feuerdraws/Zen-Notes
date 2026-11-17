@@ -5118,6 +5118,9 @@ function run(argv) {
         requestAnimationFrame(() => this._patchSiteDataPanel(popup));
       }
 
+      // Only the sidebar "+" menu gets the Create Note row. The "expecting a create popup" window opened by
+      // pressing "+" must not let it leak into other menus (e.g. the right-click menu on "+ New Tab").
+      if (ZLMenus.kindOf(popup) && popup.id !== "zenCreateNewPopup") return;
       if (popup.querySelector("#zen-notes-create-menuitem")) return;
 
       const labels = Array.from(popup.children || [])
