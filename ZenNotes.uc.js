@@ -24,9 +24,12 @@
               [/^tabs on the /, /^quick note$/]
           ],
           newtab: [
-              [/^new tab$/],
-              [/^new easel$/, /^(new|create) note$/]
-          ]
+          [
+              // First original row, whatever its label is (Zen localizes it late), so ours never land above it.
+              (k, items) => k === items.find(i => !i.hasAttribute("data-zl-easel") && !i.hasAttribute("data-zl-note") && !i.hasAttribute("data-zl-boost"))
+          ],
+          [/^new easel$/, /^(new|create) note$/]
+        ]
       };
       const BOOST_ICON_CANDIDATES = [
           "chrome://browser/skin/zen-icons/boost.svg", "chrome://browser/skin/zen-icons/boosts.svg",
@@ -93,7 +96,7 @@
           const groups = spec.map(group => {
               const found = [];
               for (const re of group) {
-                  const hit = items.find(k => !used.has(k) && re.test(labelOf(k)));
+                  const hit = items.find(k => !used.has(k) && (typeof re === "function" ? re(k, items) : re.test(labelOf(k))));
                   if (hit) { used.add(hit); found.push(hit); }
               }
               return found;
@@ -144,6 +147,7 @@
               };
               go();
               setTimeout(go, 0); // after Zen / the other mod have finished their own popupshowing work
+              setTimeout(go, 120);
           },
           restore() {
               for (const popup of document.querySelectorAll("[data-zl-arranged]")) {
