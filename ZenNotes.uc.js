@@ -1016,13 +1016,22 @@ return module.exports; })();
       }));
       action("Open Note",()=>card.click());
       action("Rename Note…",()=>{
-        const title=card.querySelector("strong");title.contentEditable="true";title.setAttribute("role","textbox");title.focus();
-        const range=document.createRange();range.selectNodeContents(title);window.getSelection().removeAllRanges();window.getSelection().addRange(range);
-        const stop=event=>event.stopPropagation();title.addEventListener("click",stop);
+        // A text field on the tile, styled like Easel's. Enter or clicking away saves; Escape cancels.
+        const strong=card.querySelector("strong");
+        const input=this._html("input");input.type="text";input.className="zn-note-rename";input.value=strong.textContent;input.spellcheck=false;
+        strong.replaceWith(input);input.focus();input.select();
         let done=false;
-        const finish=async save=>{if(done)return;done=true;title.contentEditable="false";title.removeEventListener("keydown",keys);title.removeEventListener("blur",blur);title.removeEventListener("click",stop);title.removeAttribute("role");if(save)await this._renameNote(id,title.textContent);this._notesLibrarySignature=null;this._refreshNotesLibrary();};
+        const finish=async save=>{
+          if(done)return;done=true;
+          input.removeEventListener("keydown",keys);input.removeEventListener("blur",blur);input.removeEventListener("click",stop);
+          if(input.isConnected)input.replaceWith(strong);
+          if(save)await this._renameNote(id,input.value);
+          this._notesLibrarySignature=null;this._refreshNotesLibrary();
+        };
+        const stop=event=>event.stopPropagation();
         const keys=event=>{event.stopPropagation();if(event.key==="Enter"||event.key==="Escape"){event.preventDefault();finish(event.key==="Enter").catch(console.error);}};
-        const blur=()=>finish(true).catch(console.error);title.addEventListener("keydown",keys);title.addEventListener("blur",blur);
+        const blur=()=>finish(true).catch(console.error);
+        input.addEventListener("click",stop);input.addEventListener("keydown",keys);input.addEventListener("blur",blur);
       });
       action("Duplicate Note",()=>this._duplicateNote(id));
       popup.append(document.createXULElement("menuseparator"));
@@ -5143,7 +5152,11 @@ function run(argv) {
             states.push([child, child.hidden]);
             if (!keep.has(child.id)) child.hidden = true;
           }
-          append(this._menuItem("Rename Note…", () => this._startNativeRename(tab)));
+          // Zen's own "Change label…" row, found before the menu is trimmed; the existing Enter/blur hooks save the new title.
+          const nativeRename = [...popup.querySelectorAll("menuitem")].find(node =>
+            /change label|edit label|rename/i.test(node.getAttribute("label") || node.label || "")
+            || /edit-tab|rename-tab|change-label|edit-label/i.test(node.id || ""));
+          append(this._menuItem("Change Label…", () => nativeRename ? nativeRename.doCommand() : this._startNativeRename(tab)));
           append(this._menuItem("Duplicate Note", () => this._duplicateNote(id)));
           append(document.createXULElement("menuseparator"));
           append(this._menuItem(tab.pinned ? "Unpin Note" : "Pin Note", () => tab.pinned ? gBrowser.unpinTab(tab) : gBrowser.pinTab(tab)));
