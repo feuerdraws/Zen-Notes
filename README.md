@@ -43,7 +43,7 @@ Library registration, search, safe preview rendering, opening existing notes and
 - Use in-note search, selection, undo and redo.
 - Use Zen's note appearance / Boost integration to customize presentation.
 
-Closing a normal note tab is different from deleting its saved note. Use **Delete Note** to remove it.
+Closing a normal note tab keeps the note in the Library. The one exception is a note that is still untouched (default title "New Note" and an empty body), which is discarded on close, like an untouched Zen Easel board. Use **Delete Note** to remove a note explicitly.
 
 ## Markdown & editing
 

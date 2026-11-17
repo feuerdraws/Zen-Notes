@@ -1632,8 +1632,21 @@ return module.exports; })();
       for (const win of Services.wm.getEnumerator("navigator:browser")) {
         if (Array.from(win.gZenWorkspaces?.allStoredTabs || win.gBrowser?.tabs || []).some(other => other !== tab && !other.closing && this._idFromTab(other) === id)) return;
       }
+      // Keep-unless-untouched (same idea as Zen Easel's isPristine): flush any
+      // pending edit first, then discard only a note that still has the default
+      // title and an empty body. Anything else stays in the Library.
+      try { if (this.currentNoteId === id) await this._saveCurrentNow(); } catch (error) { console.error(LOG, "Flush on close failed", error); }
+      const note = this._getNote(id);
+      if (note) {
+        let untouched = false;
+        try {
+          const data = await this._readNote(note);
+          untouched = (data.title || "").trim() === "New Note" && !(data.body || "").trim();
+        } catch (error) { console.error(LOG, "Untouched check failed", error); }
+        if (!untouched) { this.noteTabs.delete(id); return; }
+      }
       await this._deleteNote(id);
-      this._showNotice("Note deleted");
+      this._showNotice("Empty note discarded");
     }
 
     async _syncSelectedTab() {
