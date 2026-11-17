@@ -108,12 +108,25 @@
           }
       }
 
+      // The menu behind right-clicking "+ New Tab". Matched by its id, by what was right-clicked, or by
+      // having a "New Tab" row next to container rows, since Zen/Firefox give it no stable id of its own.
+      function isNewTabMenu(popup, labels) {
+        if (/new-?tab/i.test(popup.id || "")) return true;
+        if (!labels.includes("new tab")) return false;
+        if (labels.some(label => label.includes("container"))) return true;
+        const trigger = popup.triggerNode;
+        if (!trigger?.closest) return false;
+        if (trigger.closest('#new-tab-button, #zen-new-tab-button, [id*="newtab" i], [id*="new-tab" i], [command="cmd_newNavigatorTab"], [command="cmd_newNavigatorTabNoEvent"]')) return true;
+        return labelOf(trigger.closest("[label]") || trigger) === "new tab";
+      }
+
       function kindOf(popup) {
-          if (!popup?.id && !popup?.children) return null;
-          if (popup.id === PLUS_ID) return "plus";
-          if (SIDE_IDS.includes(popup.id)) return "side";
-          const labels = [...(popup.children || [])].map(labelOf);
-          return labels.includes("new tab") && labels.includes("manage containers") ? "newtab" : null;
+        if (!popup?.id && !popup?.children) return null;
+        if (popup.id === PLUS_ID) return "plus";
+        if (SIDE_IDS.includes(popup.id)) return "side";
+        if (popup.id === "tabContextMenu" || popup.id === "contentAreaContextMenu") return null;
+        const labels = [...(popup.children || [])].map(labelOf);
+        return isNewTabMenu(popup, labels) ? "newtab" : null;
       }
 
       return {

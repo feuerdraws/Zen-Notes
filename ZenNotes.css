@@ -963,12 +963,12 @@ zen-library .zn-library-note-boost .zen-library-row-subtitle::after { content:"n
 .zn-library-note-new:hover::before { content: "New note"; font-size: 11px; font-weight: 600; translate: 0; color: inherit; }
 .zn-library-note-new:focus-visible { outline: 2px solid var(--zen-primary-color, Highlight); outline-offset: 2px; }
 
-/* Default save directory button: round, floats at the bottom of the Library panel
+/* Default save directory button: rounded like Zen's own buttons, floats at the bottom of the Library panel
    (position is set from JS so it works in both the Notes tab and the merged tab).
    Transparent until hovered, colored like Zen's other toolbar buttons. */
 .zn-library-storage-btn {
   position: fixed; z-index: 5; display: grid; place-items: center; width: 30px; height: 30px;
-  margin: 0; padding: 0; border: 0; border-radius: 50%; cursor: pointer; background: transparent;
+  margin: 0; padding: 0; border: 0; border-radius: var(--border-radius-medium, 8px); cursor: pointer; background: transparent;
   color: var(--toolbarbutton-icon-fill, var(--toolbar-color, inherit));
 }
 .zn-library-storage-btn:hover { background: var(--toolbarbutton-hover-background, var(--zen-library-hover-bg, rgba(128,128,128,.2))); }
