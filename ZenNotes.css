@@ -966,14 +966,26 @@ zen-library .zn-library-note-boost .zen-library-row-subtitle::after { content:"n
 .zn-library-note-card .zn-library-note-preview img { display: block; max-width: 100%; max-height: 84px; object-fit: contain; border-radius: 4px; }
 .zn-library-note-card .zn-library-note-preview .zen-notes-link { color: inherit; text-decoration: underline; }
 
+/* Dashed "new note" card (Notes-only tab). */
+.zn-library-note-new {
+  box-sizing: border-box; aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center;
+  border: 2px dashed color-mix(in srgb, currentColor 50%, transparent); border-radius: var(--border-radius-medium, 8px);
+  cursor: pointer; color: inherit; line-height: 1;
+}
+.zn-library-note-new::before { content: "+"; font-size: 26px; font-weight: 300; translate: 0 -.08em; color: color-mix(in srgb, currentColor 55%, transparent); }
+.zn-library-note-new:hover { border-color: color-mix(in srgb, currentColor 70%, transparent); }
+.zn-library-note-new:hover::before { content: "New note"; font-size: 11px; font-weight: 600; translate: 0; color: inherit; }
+.zn-library-note-new:focus-visible { outline: 2px solid var(--zen-primary-color, Highlight); outline-offset: 2px; }
+
 /* Default save directory button: round, floats at the bottom of the Library panel
-   (position is set from JS so it works in both the Notes tab and the merged tab). */
+   (position is set from JS so it works in both the Notes tab and the merged tab).
+   Transparent until hovered, colored like Zen's other toolbar buttons. */
 .zn-library-storage-btn {
   position: fixed; z-index: 5; display: grid; place-items: center; width: 30px; height: 30px;
-  margin: 0; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
-  background: var(--zen-toolbar-element-bg, rgba(128,128,128,.18)); color: var(--zl-ink);
+  margin: 0; padding: 0; border: 0; border-radius: 50%; cursor: pointer; background: transparent;
+  color: var(--toolbarbutton-icon-fill, var(--toolbar-color, inherit));
 }
-.zn-library-storage-btn:hover { background: var(--zen-library-hover-bg, rgba(128,128,128,.3)); }
-.zn-library-storage-btn svg { width: 16px; height: 16px; opacity: .65; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
-.zn-library-storage-btn:hover svg { opacity: .9; }
+.zn-library-storage-btn:hover { background: var(--toolbarbutton-hover-background, var(--zen-library-hover-bg, rgba(128,128,128,.2))); }
+.zn-library-storage-btn svg { width: 16px; height: 16px; opacity: .8; fill: currentColor; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; }
+.zn-library-storage-btn:hover svg { opacity: 1; }
 .zn-library-notes-grid, zen-library-easels-section .easel-card-grid { padding-bottom: 52px !important; }

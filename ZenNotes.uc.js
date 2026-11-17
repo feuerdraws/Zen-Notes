@@ -694,7 +694,8 @@ return module.exports; })();
       this._notesLibrarySignature = signature;
       this._notesLibraryStatus.hidden = notes.length > 0;
       this._notesLibraryStatus.textContent = notes.length ? "" : query ? "No matching notes" : "No notes yet.";
-      this._notesLibraryGrid.replaceChildren(...notes.map(note => this._noteCardNode(note)));
+      const cards = notes.map((note, i) => { const card = this._noteCardNode(note); const c = card.querySelector(".zn-note-count"); if (c) c.textContent = String(notes.length - i); return card; });
+      this._notesLibraryGrid.replaceChildren(this._newNoteCard(), ...cards);
     }
 
     _noteCardNode(note) {
@@ -716,7 +717,7 @@ return module.exports; })();
       const title = this._html("strong"); title.textContent = note.title || "Untitled note";
       const preview = this._html("div"); preview.className = "zn-library-note-preview"; preview.textContent = "…";
       body.append(count, icon, title, preview); frame.append(body); card.append(frame);
-      card._znPreview = { note, preview, count };
+      card._znPreview = { note, preview };
       card.addEventListener("click", async () => {
         if (card._znBusy) return;
         card._znBusy = true;
@@ -737,21 +738,27 @@ return module.exports; })();
       return card;
     }
 
+    // Dashed "+" card for the Notes-only tab. (The merged tab uses Easel's own "+" card, so there is only ever one.)
+    _newNoteCard() {
+      if (this._newCard) return this._newCard;
+      const card = this._html("div"); card.className = "zn-library-note-new"; card.setAttribute("role","button"); card.tabIndex = 0;
+      card.title = "New note"; card.setAttribute("aria-label","New note");
+      const run = () => this.createNote().catch(error => this._libraryNotice("Could not create note: " + error.message));
+      card.addEventListener("click", run);
+      card.addEventListener("keydown", event => { if (["Enter"," "].includes(event.key)) { event.preventDefault(); run(); } });
+      return this._newCard = card;
+    }
+
     _queueCardPreview(item) { (this._cardQueue ||= []).push(item); this._pumpCardPreviews(); }
 
     _pumpCardPreviews() {
       this._cardRunning ||= 0;
       while (this._cardRunning < 2 && this._cardQueue?.length && !this._destroyed) {
-        const { note, preview, count } = this._cardQueue.shift(); this._cardRunning++;
-        this._readNote(note).then(data => { this._fillCardPreview(preview, data.body || ""); if (count) count.textContent = String(this._noteItemCount(data.body || "")); })
+        const { note, preview } = this._cardQueue.shift(); this._cardRunning++;
+        this._readNote(note).then(data => this._fillCardPreview(preview, data.body || ""))
           .catch(() => { preview.textContent = "Preview unavailable"; })
           .finally(() => { this._cardRunning--; this._pumpCardPreviews(); });
       }
-    }
-
-    // Number shown top-right on a card, like Easel's object count: one per non-empty line (block) of the note.
-    _noteItemCount(body) {
-      return body.replace(/!\[[^\]]*\]\(data:[^)]*\)/g, "![]()").split("\n").filter(line => line.trim()).length;
     }
 
     _fillCardPreview(preview, body) {
