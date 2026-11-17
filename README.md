@@ -12,7 +12,7 @@ Zen Notes is a **Sine mod for Zen Browser**, not a standalone application or a F
 
 1. Install the mod through Sine using this repository: `https://github.com/preperevet-1/Zen-Notes`.
 2. Enable Zen Notes and fully restart Zen.
-3. Open the sidebar **+** menu and choose **Create Note**, or use **⌘⇧N** on macOS / **Ctrl+Shift+N** on Windows and Linux.
+3. Open the sidebar **+** menu and choose **New Note**, or use **⌘⌥N** on macOS / **Ctrl+Alt+N** on Windows and Linux.
 
 For a manual update of an existing installation, replace `ZenNotes.uc.js`, `ZenNotes.css` and `theme.json` together, then restart Zen. Upload the release files to the repository root rather than adding another version directory inside it. Keep the bundled library license files in the repository.
 
@@ -127,7 +127,7 @@ Use **⌘** on macOS and **Ctrl** on Windows/Linux for the modifier below. Forma
 
 | Action | macOS | Windows / Linux |
 | --- | --- | --- |
-| New note | ⌘ Shift N | Ctrl Shift N |
+| New note | ⌘ Option N | Ctrl Alt N |
 | New Quick Note | ⌘ Shift Option N | Ctrl Shift Alt N |
 | Add selected text to a note | ⌘ Shift A | Ctrl Shift A |
 | Bold | ⌘ B | Ctrl B |
