@@ -261,10 +261,11 @@ return module.exports; })();
         if (event.target?.id !== 'tab-label-input') return;
         if (this._cancelledRename === event.target) {this._cancelledRename=null;return;}
         const tab=event.target.closest?.('tab.tabbrowser-tab') || globalThis.gZenVerticalTabsManager?._tabEdited;
-        const id=this._idFromTab(tab), title=event.target.value?.replace(/\s+/g,' ').trim();
+        // The tab shows "<title> — Note"; the field starts with that, so the suffix is not part of the title.
+        const id=this._idFromTab(tab), raw=event.target.value?.replace(/\s+/g,' ').trim(), title=raw?.replace(/\s+—\s+Note$/,'').trim();
         if (!id || !title || (this._nativeRename?.tab===tab && this._nativeRename.title===title)) return;
         window.setTimeout(async()=>{
-          if (tab.closing || (tab.zenStaticLabel !== title && tab.getAttribute('label') !== title)) return;
+          if (tab.closing || (tab.zenStaticLabel !== raw && tab.getAttribute('label') !== raw)) return;
           this._nativeRename={tab,id,title};
           try {await this._renameNote(id,title);} catch(error){console.error(LOG,error);this._showNotice('Could not rename note');}
           finally {this._nativeRename=null;this._markTab(tab,this._getNote(id));}
@@ -275,7 +276,7 @@ return module.exports; })();
         if (event.target?.id === "tab-label-input" && event.key === "Enter" && !event.isComposing) {
           const tab = event.target.closest?.("tab.tabbrowser-tab") || globalThis.gZenVerticalTabsManager?._tabEdited;
           const id = this._idFromTab(tab);
-          const title = event.target.value?.replace(/\s+/g, " ").trim();
+          const title = event.target.value?.replace(/\s+/g, " ").trim().replace(/\s+—\s+Note$/, "").trim();
           if (id && title) {
             this._nativeRename = { tab, id, title };
             window.setTimeout(async () => {
@@ -368,9 +369,10 @@ return module.exports; })();
               this._tintTabIcon(tab);
             }
             const isBeingRenamed = this._nativeRename?.tab === tab || globalThis.gZenVerticalTabsManager?._tabEdited === tab;
-            if (note && !isBeingRenamed && tab.getAttribute("label") !== note.title) {
-              tab.setAttribute("label", note.title);
-              tab.label = note.title;
+            const wantLabel = note ? `${note.title} — Note` : "";
+            if (note && !isBeingRenamed && tab.getAttribute("label") !== wantLabel) {
+              tab.setAttribute("label", wantLabel);
+              tab.label = wantLabel;
             }
           }
         });
@@ -1951,9 +1953,10 @@ return module.exports; })();
       const set = (name,value) => { if (tab.getAttribute(name) !== value) tab.setAttribute(name,value); };
       set("zen-notes-id",note.id); set("zen-notes-tab","true");
       if (tab.linkedBrowser?.getAttribute("zen-notes-content") !== "true") tab.linkedBrowser?.setAttribute("zen-notes-content","true");
-      const title = note.title || "New Note";
-      if (tab.zenStaticLabel !== title) tab.zenStaticLabel = title;
-      set("label",title); if (tab.label !== title) tab.label = title;
+      // The tab reads "<title> — Note", like an easel tab reads "<title> — Easel".
+      const label = `${note.title || "New Note"} — Note`;
+      if (tab.zenStaticLabel !== label) tab.zenStaticLabel = label;
+      set("label",label); if (tab.label !== label) tab.label = label;
       set("image",this._filledNoteIcon());
       this._tintTabIcon(tab);
       try { if (!note.quick) SessionStoreAPI?.setCustomTabValue?.(tab, "zen-notes-id", note.id); } catch {}
