@@ -45,6 +45,12 @@ Library registration, search, safe preview rendering, opening existing notes and
 
 Closing a normal note tab keeps the note in the Library. The one exception is a note that is still untouched (default title "New Note" and an empty body), which is discarded on close, like an untouched Zen Easel board. Use **Delete Note** to remove a note explicitly.
 
+## Library cards, merged tab and notes folder
+
+- Cards follow the browser theme: dark card with white text in dark mode, light card with black text in light mode. The icon sits above the title and takes the current Space accent, shifted toward white (dark) or black (light) for readability. Icon, title and preview are bottom-aligned and grow upward as the note gets longer.
+- If Zen Easel is also installed, both Library sections merge into one **Easels & Notes** tab (right beneath Downloads) with a combined grid sorted by last update. Alone, Notes keeps its own **Notes** tab. The mods find each other through a small `window.ZenLibraryHub` registry, so neither depends on the other.
+- The round file button under the grid sets the **default save directory for notes** (for example an Obsidian vault). Existing notes are copied there, the old folder is left untouched, and Zen restarts to switch. The setting is the `zen-notes.storage-dir` preference; clear it in `about:config` to go back to the profile's `zen-notes` folder. Notes are stored as `<note-id>.md`, so they appear under their ID in a vault.
+
 ## Markdown & editing
 
 Live Preview renders Markdown while keeping its source editable. Select text for the floating formatting toolbar, or right-click for the editing menus.

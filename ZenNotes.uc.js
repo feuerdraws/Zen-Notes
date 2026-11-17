@@ -21,6 +21,19 @@ return module.exports; })();
 
   const FileIO = globalThis.IOUtils;
   const Paths = globalThis.PathUtils;
+  // Tiny cross-mod registry (same snippet lives in Zen Easel). Whichever mod loads
+  // first creates it; each mod registers a provider and watches for the other.
+  const LibraryHub = (window.ZenLibraryHub ||= (() => {
+    const providers = new Map(), subs = new Set();
+    const emit = type => { for (const fn of [...subs]) try { fn(type); } catch (error) { console.error(error); } };
+    return {
+      providers,
+      subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
+      register(provider) { providers.set(provider.id, provider); emit("providers"); },
+      unregister(id, provider) { if (!provider || providers.get(id) === provider) { providers.delete(id); emit("providers"); } },
+      changed() { emit("items"); }
+    };
+  })());
   if (!FileIO || !Paths) throw new Error(`${LOG} IOUtils/PathUtils unavailable`);
 
   let SessionStoreAPI = globalThis.SessionStore || null;
@@ -47,7 +60,9 @@ return module.exports; })();
     constructor() {
       this.notes = [];
       this._quickNotes = new Map();
-      this.storageDir = Paths.join(Paths.profileDir, "zen-notes");
+      let storageDir = Paths.join(Paths.profileDir, "zen-notes");
+      try { const custom = Services.prefs.getStringPref("zen-notes.storage-dir", ""); if (custom) storageDir = custom; } catch {}
+      this.storageDir = storageDir;
       this.indexPath = Paths.join(this.storageDir, "index.json");
       this.currentNoteId = null;
       this.noteTabs = new Map();
@@ -527,7 +542,23 @@ return module.exports; })();
       return footer;
     }
 
+    _registerLibraryProvider() {
+      if (this._libraryProvider) return;
+      this._libraryProvider = {
+        id: "notes", label: "Notes", newLabel: "Note",
+        items: query => this._libraryNotes(query).map(note => ({
+          key: "note:" + note.id, title: note.title || "", updatedAt: Date.parse(note.updatedAt || note.createdAt || "") || 0,
+          node: this._noteCardNode(note)
+        })),
+        create: () => this.createNote(),
+        footer: () => this._storageButton()
+      };
+      LibraryHub.register(this._libraryProvider);
+      this._libraryHubUnsub = LibraryHub.subscribe(type => { if (type === "providers") this._notesLibraryDecorate?.(); });
+    }
+
     async _installNotesLibrary() {
+      this._registerLibraryProvider();
       await window.customElements.whenDefined("zen-library");
       if (this._destroyed) return;
       const { html } = await import("chrome://global/content/vendor/lit.all.mjs");
@@ -545,7 +576,7 @@ return module.exports; })();
         const sections = {};
         for (const [id,section] of Object.entries(library.zenLibrarySections)) {
           if (id === "notes") continue;
-          sections[id]=section; if(id==="boosts") sections.notes=this._notesLibrarySection;
+          sections[id]=section; if(id==="downloads") sections.notes=this._notesLibrarySection;
         }
         if(!sections.notes) sections.notes=this._notesLibrarySection;
         library.zenLibrarySections = sections;
@@ -563,7 +594,10 @@ return module.exports; })();
             }
           }
           const tab = library.querySelector('.zen-library-tab[data-section="notes"]');
-          if (tab) {
+          const merged = LibraryHub.providers.has("easels");
+          if (merged && library.activeTab === "notes") library.activeTab = "easels";
+          if (tab && merged) tab.style.setProperty("display", "none", "important");
+          else if (tab) {
             tab.style.removeProperty("display");
             const icon=tab.querySelector(".zen-library-tab-icon-image");
             if(icon && !icon.querySelector("svg")){
@@ -577,6 +611,7 @@ return module.exports; })();
             if (tab.getAttribute("aria-pressed") !== String(library.activeTab === "notes")) tab.setAttribute("aria-pressed",String(library.activeTab === "notes"));
           }
         };
+        this._notesLibraryDecorate = decorate;
         this._notesLibraryObserver = new MutationObserver(decorate);
         this._notesLibraryObserver.observe(library,{childList:true,subtree:true,attributes:true,attributeFilter:["src"]});
         this._notesLibraryClick = event => {
@@ -605,7 +640,7 @@ return module.exports; })();
       const search=this._html("input"); search.type="search"; search.placeholder="Search Notes…"; search.setAttribute("aria-label","Search notes by title");
       const status=this._html("p"); status.className="zn-library-notes-status"; status.setAttribute("role","status");status.hidden=true;
       const grid=this._html("div"); grid.className="zen-library-media-grid zn-library-notes-grid";
-      const results=this._html("div");results.className="zen-library-search-results";results.append(status,grid);
+      const results=this._html("div");results.className="zen-library-search-results";results.append(status,grid,this._storageButton());
       box.append(glass,search);row.append(box);header.append(row);root.append(header,results);
       root.addEventListener("keydown",event=>event.stopPropagation());
       search.addEventListener("input",()=>this._refreshNotesLibrary());
@@ -614,68 +649,144 @@ return module.exports; })();
       this._refreshNotesLibrary(); return root;
     }
 
-    _refreshNotesLibrary() {
-      if (!this._notesLibraryGrid || this._destroyed) return;
-      const query=this._notesLibrarySearch.value.trim().toLocaleLowerCase();
-      const notes=this.notes.filter(note=>!this._closingNotes.has(note.id) && (note.title||"").toLocaleLowerCase().includes(query))
+    _libraryNotes(query) {
+      const q = String(query || "").trim().toLocaleLowerCase();
+      return this.notes.filter(note => !note.quick && !this._closingNotes.has(note.id) && (note.title||"").toLocaleLowerCase().includes(q))
         .slice().sort((a,b)=>(b.updatedAt||b.createdAt||"").localeCompare(a.updatedAt||a.createdAt||""));
-      const signature=JSON.stringify(notes.map(note=>[note.id,note.title,note.updatedAt]));
-      if (signature===this._notesLibrarySignature) return;
-      this._notesLibrarySignature=signature;
-      const generation=this._notesLibraryGeneration=(this._notesLibraryGeneration||0)+1;
-      this._notesLibraryThumbObserver?.disconnect();
-      this._notesLibraryGrid.replaceChildren();
-      this._notesLibraryStatus.hidden=notes.length>0;
-      this._notesLibraryStatus.textContent=notes.length ? "" : query ? "No matching notes" : "No notes yet.";
-      const queue=[];let running=0;
-      const drain=()=>{
-        while(running<2 && queue.length && generation===this._notesLibraryGeneration && !this._destroyed){
-          const {note,preview}=queue.shift();running++;
-          this._readNote(note).then(data=>{
-            if(generation!==this._notesLibraryGeneration || this._destroyed) return;
-            // Never parse note HTML or fetch remote URLs just to show a thumbnail.
-            const body=data.body||"";
-            const source=body.slice(0,2000000).match(/!\[[^\]\n]*\]\((data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+)\)/i)?.[1];
-            if(source){const img=this._html("img");img.src=source;img.alt="";img.loading="lazy";img.className="zen-library-media-thumb";preview.replaceChildren(img);}
-            else {
-              preview.replaceChildren();
-              const excerpt=body.slice(0,4096).replace(/!\[([^\]]*)\]\([^)]*\)/g,"$1").replace(/<[^>]*>/g,"").replace(/data:[^\s)]*/g,"").slice(0,1400);
-              for(const raw of excerpt.split("\n").slice(0,24)){
-                const line=this._html("div"), heading=raw.match(/^#{1,6}\s+(.*)/), bullet=raw.match(/^\s*[-*+]\s+(.*)/);
-                line.innerHTML=this._inline(heading?heading[1]:bullet?"• "+bullet[1]:raw)||"<br/>";
-                if(heading)line.className="zn-library-preview-heading";
-                preview.append(line);
-              }
-            }
-          }).catch(()=>{if(generation===this._notesLibraryGeneration) preview.textContent="Preview unavailable";})
-            .finally(()=>{running--;drain();});
-        }
-      };
-      if(window.IntersectionObserver) this._notesLibraryThumbObserver=new IntersectionObserver(entries=>{
-        for(const entry of entries) if(entry.isIntersecting){this._notesLibraryThumbObserver.unobserve(entry.target);queue.push(entry.target._znPreview);}
-        drain();
-      },{root:this._notesLibraryGrid.parentElement,rootMargin:"160px"});
-      for(const note of notes){
-        const card=this._html("div");card.setAttribute("role","button");card.tabIndex=0;card.className="zn-library-note-card";
-        card.addEventListener("keydown",event=>{if(event.target===card && ["Enter"," "].includes(event.key)){event.preventDefault();card.click();}});card.dataset.noteId=note.id;
-        card.setAttribute("aria-label",`Open ${note.title||"Untitled note"}`);
-        card.addEventListener("contextmenu",event=>{event.preventDefault();event.stopPropagation();this._notesLibraryMenu(event,note.id,card);});
-        const preview=this._html("div");preview.className="zn-library-note-preview";preview.textContent="…";
-        const title=this._html("strong");title.textContent=note.title||"Untitled note";
-        card.append(title,preview);card._znPreview={note,preview};this._notesLibraryGrid.append(card);
-        card.addEventListener("click",async()=>{
-          if(card.disabled)return;
-          card.disabled=true;
-          try {
-            await this._saveCurrentNow();await this._filterDeletedNotes();
-            const current=this._getNote(note.id);if(!current){this._notesLibrarySignature=null;this._refreshNotesLibrary();return;}
-            await this._openLinkedNote(note.id);this._notesLibrary.constructor.animateProgress?.(0);
-          }catch(error){this._notesLibraryStatus.hidden=false;this._notesLibraryStatus.textContent="Could not open note: "+error.message;}
-          finally{card.disabled=false;}
-        });
-        if(this._notesLibraryThumbObserver) this._notesLibraryThumbObserver.observe(card);else queue.push({note,preview});
+    }
+
+    _libraryNotice(message) {
+      const status = this._notesLibraryStatus;
+      if (status?.isConnected) { status.hidden = false; status.textContent = message; }
+      else this._showNotice(message);
+    }
+
+    _refreshNotesLibrary() {
+      if (this._destroyed) return;
+      LibraryHub.changed(); // lets a merged "Easels & Notes" tab re-render
+      if (!this._notesLibraryGrid) return;
+      const query = this._notesLibrarySearch.value.trim().toLocaleLowerCase();
+      const notes = this._libraryNotes(query);
+      const signature = JSON.stringify(notes.map(note=>[note.id,note.title,note.updatedAt]));
+      if (signature === this._notesLibrarySignature) return;
+      this._notesLibrarySignature = signature;
+      this._notesLibraryStatus.hidden = notes.length > 0;
+      this._notesLibraryStatus.textContent = notes.length ? "" : query ? "No matching notes" : "No notes yet.";
+      this._notesLibraryGrid.replaceChildren(...notes.map(note => this._noteCardNode(note)));
+    }
+
+    _noteCardNode(note) {
+      const sig = `${note.id}|${note.title||""}|${note.updatedAt||""}`;
+      this._noteCards ||= new Map();
+      const cached = this._noteCards.get(note.id);
+      if (cached?.sig === sig) return cached.node;
+      const svgNS = "http://www.w3.org/2000/svg";
+      const card = this._html("div"); card.setAttribute("role","button"); card.tabIndex = 0;
+      card.className = "zn-library-note-card"; card.dataset.noteId = note.id;
+      card.setAttribute("aria-label", `Open ${note.title||"Untitled note"}`);
+      card.addEventListener("keydown", event => { if (event.target === card && ["Enter"," "].includes(event.key)) { event.preventDefault(); card.click(); } });
+      card.addEventListener("contextmenu", event => { event.preventDefault(); event.stopPropagation(); this._notesLibraryMenu(event, note.id, card); });
+      const frame = this._html("div"); frame.className = "zn-note-frame";
+      const body = this._html("div"); body.className = "zn-note-body";
+      const icon = document.createElementNS(svgNS, "svg"); icon.setAttribute("class","zn-note-icon"); icon.setAttribute("viewBox","0 0 32 32"); icon.setAttribute("aria-hidden","true");
+      const path = document.createElementNS(svgNS, "path"); path.setAttribute("d","M18 4H8a2 2 0 0 0-2 2v22h20V12z M18 4v8h8 M11 17h10 M11 22h7"); icon.append(path);
+      const title = this._html("strong"); title.textContent = note.title || "Untitled note";
+      const preview = this._html("div"); preview.className = "zn-library-note-preview"; preview.textContent = "…";
+      body.append(icon, title, preview); frame.append(body); card.append(frame);
+      card._znPreview = { note, preview };
+      card.addEventListener("click", async () => {
+        if (card._znBusy) return;
+        card._znBusy = true;
+        try {
+          await this._saveCurrentNow(); await this._filterDeletedNotes();
+          if (!this._getNote(note.id)) { this._notesLibrarySignature = null; this._refreshNotesLibrary(); return; }
+          await this._openLinkedNote(note.id); this._notesLibrary?.constructor.animateProgress?.(0);
+        } catch (error) { this._libraryNotice("Could not open note: " + error.message); }
+        finally { card._znBusy = false; }
+      });
+      this._noteCards.set(note.id, { sig, node: card });
+      if (window.IntersectionObserver) {
+        this._cardPreviewIO ||= new IntersectionObserver(entries => {
+          for (const entry of entries) if (entry.isIntersecting) { this._cardPreviewIO.unobserve(entry.target); this._queueCardPreview(entry.target._znPreview); }
+        }, { rootMargin: "160px" });
+        this._cardPreviewIO.observe(card);
+      } else this._queueCardPreview(card._znPreview);
+      return card;
+    }
+
+    _queueCardPreview(item) { (this._cardQueue ||= []).push(item); this._pumpCardPreviews(); }
+
+    _pumpCardPreviews() {
+      this._cardRunning ||= 0;
+      while (this._cardRunning < 2 && this._cardQueue?.length && !this._destroyed) {
+        const { note, preview } = this._cardQueue.shift(); this._cardRunning++;
+        this._readNote(note).then(data => this._fillCardPreview(preview, data.body || ""))
+          .catch(() => { preview.textContent = "Preview unavailable"; })
+          .finally(() => { this._cardRunning--; this._pumpCardPreviews(); });
       }
-      drain();
+    }
+
+    _fillCardPreview(preview, body) {
+      // Never parse note HTML or fetch remote URLs just to show a thumbnail.
+      const source = body.slice(0,2000000).match(/!\[[^\]\n]*\]\((data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+)\)/i)?.[1];
+      if (source) { const img = this._html("img"); img.src = source; img.alt = ""; preview.replaceChildren(img); preview.hidden = false; return; }
+      preview.replaceChildren();
+      const excerpt = body.slice(0,4096).replace(/!\[([^\]]*)\]\([^)]*\)/g,"$1").replace(/<[^>]*>/g,"").replace(/data:[^\s)]*/g,"").slice(0,1400);
+      if (!excerpt.trim()) { preview.hidden = true; return; }
+      preview.hidden = false;
+      for (const raw of excerpt.split("\n").slice(0,24)) {
+        const line = this._html("div"), heading = raw.match(/^#{1,6}\s+(.*)/), bullet = raw.match(/^\s*[-*+]\s+(.*)/);
+        line.innerHTML = this._inline(heading ? heading[1] : bullet ? "• " + bullet[1] : raw) || "<br/>";
+        if (heading) line.className = "zn-library-preview-heading";
+        preview.append(line);
+      }
+    }
+
+    _storageButton() {
+      if (this._storageBtn) return this._storageBtn;
+      const btn = this._html("button"); btn.type = "button"; btn.className = "zn-library-storage-btn";
+      btn.title = "Set the default save directory for notes"; btn.setAttribute("aria-label", btn.title);
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svg.setAttribute("viewBox","0 0 32 32"); svg.setAttribute("aria-hidden","true");
+      const path = document.createElementNS(svg.namespaceURI, "path"); path.setAttribute("d","M18 4H8a2 2 0 0 0-2 2v22h20V12z M18 4v8h8 M11 17h10 M11 22h7"); svg.append(path); btn.append(svg);
+      btn.addEventListener("click", event => {
+        event.stopPropagation();
+        this._chooseStorageDir().catch(error => { console.error(LOG, error); this._libraryNotice("Could not change the folder: " + error.message); });
+      });
+      return this._storageBtn = btn;
+    }
+
+    async _chooseStorageDir() {
+      await this._saveCurrentNow();
+      const picker = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
+      picker.init(window.browsingContext, "Default save directory for notes", Ci.nsIFilePicker.modeGetFolder);
+      try { const current = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile); current.initWithPath(this.storageDir); picker.displayDirectory = current; } catch {}
+      const result = await new Promise(resolve => picker.open(resolve));
+      if (result !== Ci.nsIFilePicker.returnOK) return;
+      const dir = picker.file.path;
+      if (!dir || dir === this.storageDir) return;
+      // Copy, never move: existing notes stay in the old folder as a backup.
+      await FileIO.makeDirectory(dir, { createAncestors: true, ignoreExisting: true });
+      await this._writes;
+      for (const path of await FileIO.getChildren(this.storageDir)) {
+        const name = Paths.filename(path);
+        if (name === "sync-test-v1") continue;
+        const dest = Paths.join(dir, name);
+        if (name === "index.json" && await FileIO.exists(dest)) {
+          try {
+            const mine = JSON.parse(await FileIO.readUTF8(path)), theirs = JSON.parse(await FileIO.readUTF8(dest));
+            const known = new Set((theirs.notes || []).map(note => note.id));
+            theirs.notes = [...(theirs.notes || []), ...(mine.notes || []).filter(note => !known.has(note.id))];
+            await FileIO.writeUTF8(dest, JSON.stringify(theirs, null, 2));
+          } catch (error) { console.error(LOG, "Could not merge index", error); }
+          continue;
+        }
+        if (await FileIO.exists(dest)) continue;
+        await FileIO.copy(path, dest, { recursive: true });
+      }
+      Services.prefs.setStringPref("zen-notes.storage-dir", dir);
+      if (Services.prompt.confirm(window, "Notes folder changed", `Notes were copied to:\n${dir}\n\nRestart Zen now to start saving there? (Your old folder is left untouched.)`)) {
+        Services.startup.quit(Ci.nsIAppStartup.eAttemptQuit | Ci.nsIAppStartup.eRestart);
+      }
     }
 
     _notesLibraryMenu(event,id,card) {
@@ -685,7 +796,7 @@ return module.exports; })();
       const action=(label,fn)=>popup.append(this._menuItem(label,async()=>{
         if(!this._getNote(id))return;
         try {await fn();if(label!=="Rename Note…"){this._notesLibrarySignature=null;this._refreshNotesLibrary();}}
-        catch(error){this._notesLibraryStatus.hidden=false;this._notesLibraryStatus.textContent=error.message;}
+        catch(error){this._libraryNotice(error.message);}
       }));
       action("Open Note",()=>card.click());
       action("Rename Note…",()=>{
@@ -708,6 +819,8 @@ return module.exports; })();
 
     _destroyNotesLibrary() {
       document.getElementById("zen-notes-library-menu")?.remove();
+      this._libraryHubUnsub?.(); LibraryHub.unregister("notes", this._libraryProvider); this._libraryProvider = null;
+      this._cardPreviewIO?.disconnect(); this._noteCards?.clear(); this._cardQueue = [];
       this._notesLibraryWait?.disconnect();this._notesLibraryObserver?.disconnect();this._notesLibraryThumbObserver?.disconnect();
       this._notesLibraryGeneration=(this._notesLibraryGeneration||0)+1;
       const library=this._notesLibrary;

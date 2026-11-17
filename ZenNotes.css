@@ -866,10 +866,6 @@ zen-library .zn-library-notes-header input { min-width:0; flex:1; border:0; bord
 zen-library .zn-library-notes-header button { width:40px; flex-shrink:0; border:0; border-radius:14px; background:var(--zen-library-pill-bg); color:inherit; font:24px system-ui; cursor:pointer; }
 zen-library .zn-library-notes-status { margin:4px 18px 8px; opacity:.65; font-size:12px; }
 zen-library .zn-library-notes-grid { flex:1; min-height:0; overflow:auto; padding:6px 14px 14px; scrollbar-width:thin; }
-zen-library .zn-library-note-card { min-width:0; border:0; color:inherit; font:inherit; cursor:pointer; flex-direction:column; gap:10px; align-items:stretch; text-align:start; }
-zen-library .zn-library-note-card strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
-zen-library .zn-library-note-preview { flex:1; min-height:0; overflow:hidden; white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; line-height:1.45; opacity:.85; display:flex; align-items:center; justify-content:center; }
-zen-library .zn-library-note-preview img { max-width:100%; max-height:100%; object-fit:contain; }
 zen-library .zn-library-notes :is(button,input):focus-visible { outline:2px solid var(--zen-primary-color,Highlight); outline-offset:2px; }
 zen-library .zen-library-tab[data-section="notes"] .zen-library-tab-icon-image { width:100%; height:100%; background:none; background-position:0 0; background-size:contain; background-repeat:no-repeat; }
 @keyframes zn-library-note-open { 0%,100% {transform:rotate(0) scale(1);} 35% {transform:rotate(-10deg) scale(1.12);} 65% {transform:rotate(5deg) scale(1.04);} }
@@ -882,25 +878,6 @@ zen-library .zen-library-tab[data-section="notes"] .zen-library-tab-icon-image {
 zen-library .zn-library-notes .zen-library-search-box { flex:1; }
 zen-library .zn-library-notes-status[hidden] { display:none !important; }
 zen-library .zn-library-notes-grid { padding:6px; gap:12px; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); }
-zen-library .zn-library-note-card {
- appearance:none; display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start;
- width:100%; min-width:0; min-height:0; aspect-ratio:1; overflow:hidden; box-sizing:border-box;
- padding:14px; gap:6px; border:1px solid #e4e4e7; border-radius:16px;
- background:#fff; color:#303034; text-align:left;
-}
-zen-library .zn-library-note-card:hover { background:#fff; }
-zen-library .zn-library-note-card > strong {
- flex:0 0 auto; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis;
- white-space:nowrap; font:650 12px/1.25 system-ui; margin:0;
-}
-zen-library .zn-library-note-preview {
- display:block; flex:1 1 0; min-height:0; width:100%; overflow:hidden;
- opacity:1; white-space:pre-wrap; overflow-wrap:anywhere; font:9px/1.35 system-ui;
-}
-zen-library .zn-library-preview-heading { font-weight:650; font-size:11px; }
-zen-library .zn-library-note-preview img { display:block; max-width:100%; max-height:100%; object-fit:contain; margin:auto; }
-zen-library .zn-library-note-preview .zen-notes-link { color:#175cd3; text-decoration:underline; }
-zen-library .zn-library-note-card strong[contenteditable="true"] { white-space:normal; outline:1px solid Highlight; user-select:text; cursor:text; }
 zen-library .zen-library-tab[data-section="notes"] .zen-library-tab-icon-image {
  mask:none !important; background:none !important; width:var(--zen-library-sprite-size,32px) !important;
  height:var(--zen-library-sprite-size,32px) !important; display:grid; place-items:center;
@@ -916,32 +893,8 @@ zen-library .zn-library-notes-grid {
  grid-auto-rows:auto !important; align-content:start !important; align-items:start !important;
  gap:12px !important; padding:6px !important; overflow:visible !important; flex:none !important;
 }
-zen-library .zn-library-note-card {
- display:flex !important; flex-direction:column !important; justify-content:flex-start !important;
- box-sizing:border-box !important; position:relative !important; margin:0 !important;
- width:100% !important; height:auto !important; min-width:0 !important; min-height:0 !important;
- max-height:none !important; aspect-ratio:1 / 1 !important; overflow:hidden !important;
- background:#fff !important; background-image:none !important; color:#303034 !important;
- border:1px solid #e4e4e7 !important; border-radius:16px !important;
- padding:14px !important; gap:6px !important; text-align:left !important;
- contain:inline-size; cursor:pointer;
-}
-zen-library .zn-library-note-card:hover { background:#fff !important; border-color:#c8c8cf !important; }
-zen-library .zn-library-note-card > strong {
- display:block !important; flex:0 0 auto !important; min-width:0 !important;
- width:100% !important; text-align:left !important; overflow:hidden !important;
- white-space:nowrap !important; text-overflow:ellipsis !important;
-}
-zen-library .zn-library-note-card > .zn-library-note-preview {
- display:block !important; flex:1 1 0 !important; min-height:0 !important;
- overflow:hidden !important; width:100% !important; max-width:100% !important;
-}
-zen-library .zn-library-note-card:focus-visible { outline:2px solid Highlight; outline-offset:2px; }
 
 /* Match Media's hover motion without adding a hover outline. */
-zen-library .zn-library-note-card { transition:scale .14s ease !important; }
-zen-library .zn-library-note-card:hover { scale:1.04; border-color:#e4e4e7 !important; }
-zen-library .zn-library-note-card:hover:active { scale:1; }
 /* Same light/dark stroke and selected fill as native Library sprites. */
 zen-library .zen-library-tab[data-section="notes"] .zen-library-tab-icon-image svg {
  stroke:var(--stroke,light-dark(var(--zen-colors-primary),var(--zen-accent-button-color))) !important;
@@ -958,3 +911,56 @@ zen-library .zn-library-boost-note-icon {
 zen-library .zn-library-note-boost .zen-library-row-subtitle { font-size:0 !important; }
 zen-library .zn-library-note-boost .zen-library-row-subtitle::after { content:"notes"; font-size:12px; }
 @media(prefers-reduced-motion:reduce) { zen-library .zn-library-note-card { transition:none !important; } }
+
+/* ---- Library cards (Notes) -------------------------------------------------
+   Same frame as Zen Easel's cards so both read as one family. Dark mode: dark
+   card, white text. Light mode: light card, black text. The icon takes the
+   Space accent, pushed toward white (dark) or black (light) so it stays legible. */
+.zn-library-note-card {
+  --zn-card-radius: var(--border-radius-medium, 8px);
+  --zn-card-ink: light-dark(#111111, #ffffff);
+  --zn-card-accent: color-mix(in srgb, var(--zen-primary-color, #8b9ac0) 62%, light-dark(#000000, #ffffff));
+  position: relative; box-sizing: border-box; display: flex;
+  width: 100%; min-width: 0; min-height: 0; margin: 0; padding: 6px;
+  aspect-ratio: 1 / 1; border: 0; border-radius: var(--zn-card-radius);
+  background: var(--zen-toolbar-element-bg, var(--zen-library-hover-bg, rgba(128,128,128,.14)));
+  color: var(--zn-card-ink); font: inherit; text-align: left; cursor: pointer;
+}
+.zn-library-note-card .zn-note-frame {
+  flex: 1; min-width: 0; min-height: 0; width: 100%; box-sizing: border-box; padding: 3px;
+  border-radius: calc(var(--zn-card-radius) - 2px); background: light-dark(#ffffff, #3c3c3c);
+}
+.zn-library-note-card .zn-note-body {
+  display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; gap: 5px;
+  width: 100%; height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; overflow: hidden;
+  padding: 8px 8px 7px; border-radius: calc(var(--zn-card-radius) - 4px);
+  background: light-dark(#e8e8e8, #2a2a2a); color: var(--zn-card-ink);
+}
+.zn-library-note-card:hover .zn-note-body { background: light-dark(#dedede, #323232); }
+.zn-library-note-card:focus-visible { outline: 2px solid var(--zen-primary-color, Highlight); outline-offset: 1px; }
+.zn-library-note-card .zn-note-icon {
+  flex: none; width: 18px; height: 18px; color: var(--zn-card-accent);
+  fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+}
+.zn-library-note-card > .zn-note-frame strong {
+  flex: none; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  overflow: hidden; overflow-wrap: anywhere; font: 700 12px/1.2 system-ui; letter-spacing: -.02em; margin: 0;
+}
+.zn-library-note-card strong[contenteditable="true"] { display: block; outline: 1px solid Highlight; user-select: text; cursor: text; }
+.zn-library-note-card .zn-library-note-preview {
+  flex: 0 1 auto; min-height: 0; overflow: hidden; display: block;
+  white-space: pre-wrap; overflow-wrap: anywhere; font: 10px/1.35 system-ui; opacity: .8;
+}
+.zn-library-note-card .zn-library-note-preview[hidden] { display: none; }
+.zn-library-note-card .zn-library-preview-heading { font-weight: 650; font-size: 11px; }
+.zn-library-note-card .zn-library-note-preview img { display: block; max-width: 100%; max-height: 84px; object-fit: contain; border-radius: 4px; }
+.zn-library-note-card .zn-library-note-preview .zen-notes-link { color: inherit; text-decoration: underline; }
+
+/* Default save directory button (round, bottom of the Library section). */
+.zn-library-storage-btn {
+  position: sticky; bottom: 6px; display: grid; place-items: center; width: 30px; height: 30px;
+  margin: 10px 4px 4px auto; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
+  background: var(--zen-toolbar-element-bg, rgba(128,128,128,.18)); color: light-dark(#111111, #ffffff);
+}
+.zn-library-storage-btn:hover { background: var(--zen-library-hover-bg, rgba(128,128,128,.3)); }
+.zn-library-storage-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
