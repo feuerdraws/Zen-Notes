@@ -34,6 +34,26 @@ return module.exports; })();
       changed() { emit("items"); }
     };
   })());
+(() => {
+  // Mirrors Zen's light/dark state onto <html data-zl-scheme>. Same snippet lives in Zen Easel.
+  const rootEl = document.documentElement;
+  const apply = () => {
+    let dark; try { dark = window.gZenThemePicker?.isDarkMode; } catch {}
+    if (typeof dark !== "boolean") dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const value = dark ? "dark" : "light";
+    if (rootEl.getAttribute("data-zl-scheme") !== value) rootEl.setAttribute("data-zl-scheme", value);
+  };
+  apply();
+  if (window.__zlSchemeWatch) { window.__zlSchemeWatch.apply = apply; return; }
+  window.__zlSchemeWatch = { apply };
+  const run = () => window.__zlSchemeWatch.apply();
+  new MutationObserver(run).observe(rootEl, { attributes: true });
+  try { window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", run); } catch {}
+  for (const pref of ["browser.theme.toolbar-theme", "browser.theme.content-theme", "zen.theme.color-prefs.use-workspace-colors"]) {
+    try { Services.prefs.addObserver(pref, { observe: () => setTimeout(run, 50) }); } catch {}
+  }
+  window.addEventListener("focus", run);
+})();
   if (!FileIO || !Paths) throw new Error(`${LOG} IOUtils/PathUtils unavailable`);
 
   let SessionStoreAPI = globalThis.SessionStore || null;
@@ -551,10 +571,11 @@ return module.exports; })();
           node: this._noteCardNode(note)
         })),
         create: () => this.createNote(),
-        footer: () => this._storageButton()
+        footer: () => this._storageButton(),
+        place: () => this._placeStorageButton()
       };
       LibraryHub.register(this._libraryProvider);
-      this._libraryHubUnsub = LibraryHub.subscribe(type => { if (type === "providers") this._notesLibraryDecorate?.(); });
+      this._libraryHubUnsub = LibraryHub.subscribe(type => { if (type === "providers") this._notesLibraryDecorate?.(); this._placeStorageButton?.(); });
     }
 
     async _installNotesLibrary() {
@@ -640,7 +661,7 @@ return module.exports; })();
       const search=this._html("input"); search.type="search"; search.placeholder="Search Notes…"; search.setAttribute("aria-label","Search notes by title");
       const status=this._html("p"); status.className="zn-library-notes-status"; status.setAttribute("role","status");status.hidden=true;
       const grid=this._html("div"); grid.className="zen-library-media-grid zn-library-notes-grid";
-      const results=this._html("div");results.className="zen-library-search-results";results.append(status,grid,this._storageButton());
+      const results=this._html("div");results.className="zen-library-search-results";results.append(status,grid,this._storageButton()); setTimeout(() => this._placeStorageButton(), 60);
       box.append(glass,search);row.append(box);header.append(row);root.append(header,results);
       root.addEventListener("keydown",event=>event.stopPropagation());
       search.addEventListener("input",()=>this._refreshNotesLibrary());
@@ -663,6 +684,7 @@ return module.exports; })();
 
     _refreshNotesLibrary() {
       if (this._destroyed) return;
+      window.__zlSchemeWatch?.apply(); this._placeStorageButton?.();
       LibraryHub.changed(); // lets a merged "Easels & Notes" tab re-render
       if (!this._notesLibraryGrid) return;
       const query = this._notesLibrarySearch.value.trim().toLocaleLowerCase();
@@ -690,10 +712,11 @@ return module.exports; })();
       const body = this._html("div"); body.className = "zn-note-body";
       const icon = document.createElementNS(svgNS, "svg"); icon.setAttribute("class","zn-note-icon"); icon.setAttribute("viewBox","0 0 32 32"); icon.setAttribute("aria-hidden","true");
       const path = document.createElementNS(svgNS, "path"); path.setAttribute("d","M18 4H8a2 2 0 0 0-2 2v22h20V12z M18 4v8h8 M11 17h10 M11 22h7"); icon.append(path);
+      const count = this._html("div"); count.className = "zn-note-count";
       const title = this._html("strong"); title.textContent = note.title || "Untitled note";
       const preview = this._html("div"); preview.className = "zn-library-note-preview"; preview.textContent = "…";
-      body.append(icon, title, preview); frame.append(body); card.append(frame);
-      card._znPreview = { note, preview };
+      body.append(count, icon, title, preview); frame.append(body); card.append(frame);
+      card._znPreview = { note, preview, count };
       card.addEventListener("click", async () => {
         if (card._znBusy) return;
         card._znBusy = true;
@@ -719,11 +742,16 @@ return module.exports; })();
     _pumpCardPreviews() {
       this._cardRunning ||= 0;
       while (this._cardRunning < 2 && this._cardQueue?.length && !this._destroyed) {
-        const { note, preview } = this._cardQueue.shift(); this._cardRunning++;
-        this._readNote(note).then(data => this._fillCardPreview(preview, data.body || ""))
+        const { note, preview, count } = this._cardQueue.shift(); this._cardRunning++;
+        this._readNote(note).then(data => { this._fillCardPreview(preview, data.body || ""); if (count) count.textContent = String(this._noteItemCount(data.body || "")); })
           .catch(() => { preview.textContent = "Preview unavailable"; })
           .finally(() => { this._cardRunning--; this._pumpCardPreviews(); });
       }
+    }
+
+    // Number shown top-right on a card, like Easel's object count: one per non-empty line (block) of the note.
+    _noteItemCount(body) {
+      return body.replace(/!\[[^\]]*\]\(data:[^)]*\)/g, "![]()").split("\n").filter(line => line.trim()).length;
     }
 
     _fillCardPreview(preview, body) {
@@ -747,12 +775,34 @@ return module.exports; })();
       const btn = this._html("button"); btn.type = "button"; btn.className = "zn-library-storage-btn";
       btn.title = "Set the default save directory for notes"; btn.setAttribute("aria-label", btn.title);
       const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svg.setAttribute("viewBox","0 0 32 32"); svg.setAttribute("aria-hidden","true");
-      const path = document.createElementNS(svg.namespaceURI, "path"); path.setAttribute("d","M18 4H8a2 2 0 0 0-2 2v22h20V12z M18 4v8h8 M11 17h10 M11 22h7"); svg.append(path); btn.append(svg);
+      const path = document.createElementNS(svg.namespaceURI, "path"); path.setAttribute("d","M4 9a2 2 0 0 1 2-2h7l3 3h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"); svg.append(path); btn.append(svg);
       btn.addEventListener("click", event => {
         event.stopPropagation();
         this._chooseStorageDir().catch(error => { console.error(LOG, error); this._libraryNotice("Could not change the folder: " + error.message); });
       });
+      if (!this._storagePlaceBound) {
+        this._storagePlaceBound = true;
+        window.addEventListener("resize", () => this._placeStorageButton());
+      }
       return this._storageBtn = btn;
+    }
+
+    // Pins the round button to the bottom-right of the Library column. It is position:fixed;
+    // measuring where (0,0) lands makes this correct even if an ancestor creates a containing block.
+    _placeStorageButton() {
+      const btn = this._storageBtn;
+      if (!btn || this._destroyed) return;
+      requestAnimationFrame(() => {
+        const host = btn.parentElement; if (!btn.isConnected || !host) return;
+        const col = host.getBoundingClientRect(); if (!col.width) return;
+        btn.style.left = "0px"; btn.style.top = "0px";
+        const origin = btn.getBoundingClientRect();
+        const size = origin.width || 30;
+        const wantLeft = Math.min(col.right, window.innerWidth) - size - 12;
+        const wantTop = window.innerHeight - size - 14;
+        btn.style.left = (wantLeft - origin.left) + "px";
+        btn.style.top = (wantTop - origin.top) + "px";
+      });
     }
 
     async _chooseStorageDir() {

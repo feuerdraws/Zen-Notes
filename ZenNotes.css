@@ -912,14 +912,23 @@ zen-library .zn-library-note-boost .zen-library-row-subtitle { font-size:0 !impo
 zen-library .zn-library-note-boost .zen-library-row-subtitle::after { content:"notes"; font-size:12px; }
 @media(prefers-reduced-motion:reduce) { zen-library .zn-library-note-card { transition:none !important; } }
 
+/* Card colors follow Zen's own light/dark state (data-zl-scheme, set by the mod's JS),
+   because light-dark() alone tracks the chrome's color-scheme, which Zen's theme setting does not change. */
+:root {
+  --zl-frame: light-dark(#ffffff, #3c3c3c); --zl-body: light-dark(#e8e8e8, #2a2a2a);
+  --zl-body-hover: light-dark(#dedede, #323232); --zl-ink: light-dark(#111111, #ffffff); --zl-mix: light-dark(#000000, #ffffff);
+}
+:root[data-zl-scheme="dark"] { --zl-frame:#3c3c3c; --zl-body:#2a2a2a; --zl-body-hover:#323232; --zl-ink:#ffffff; --zl-mix:#ffffff; }
+:root[data-zl-scheme="light"] { --zl-frame:#ffffff; --zl-body:#e8e8e8; --zl-body-hover:#dedede; --zl-ink:#111111; --zl-mix:#000000; }
+
 /* ---- Library cards (Notes) -------------------------------------------------
    Same frame as Zen Easel's cards so both read as one family. Dark mode: dark
    card, white text. Light mode: light card, black text. The icon takes the
    Space accent, pushed toward white (dark) or black (light) so it stays legible. */
 .zn-library-note-card {
   --zn-card-radius: var(--border-radius-medium, 8px);
-  --zn-card-ink: light-dark(#111111, #ffffff);
-  --zn-card-accent: color-mix(in srgb, var(--zen-primary-color, #8b9ac0) 62%, light-dark(#000000, #ffffff));
+  --zn-card-ink: var(--zl-ink);
+  --zn-card-accent: color-mix(in srgb, var(--zen-primary-color, #8b9ac0) 62%, var(--zl-mix));
   position: relative; box-sizing: border-box; display: flex;
   width: 100%; min-width: 0; min-height: 0; margin: 0; padding: 6px;
   aspect-ratio: 1 / 1; border: 0; border-radius: var(--zn-card-radius);
@@ -928,15 +937,15 @@ zen-library .zn-library-note-boost .zen-library-row-subtitle::after { content:"n
 }
 .zn-library-note-card .zn-note-frame {
   flex: 1; min-width: 0; min-height: 0; width: 100%; box-sizing: border-box; padding: 3px;
-  border-radius: calc(var(--zn-card-radius) - 2px); background: light-dark(#ffffff, #3c3c3c);
+  border-radius: calc(var(--zn-card-radius) - 2px); background: var(--zl-frame);
 }
 .zn-library-note-card .zn-note-body {
   display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; gap: 5px;
   width: 100%; height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; overflow: hidden;
   padding: 8px 8px 7px; border-radius: calc(var(--zn-card-radius) - 4px);
-  background: light-dark(#e8e8e8, #2a2a2a); color: var(--zn-card-ink);
+  position: relative; background: var(--zl-body); color: var(--zn-card-ink);
 }
-.zn-library-note-card:hover .zn-note-body { background: light-dark(#dedede, #323232); }
+.zn-library-note-card:hover .zn-note-body { background: var(--zl-body-hover); }
 .zn-library-note-card:focus-visible { outline: 2px solid var(--zen-primary-color, Highlight); outline-offset: 1px; }
 .zn-library-note-card .zn-note-icon {
   flex: none; width: 18px; height: 18px; color: var(--zn-card-accent);
@@ -951,16 +960,20 @@ zen-library .zn-library-note-boost .zen-library-row-subtitle::after { content:"n
   flex: 0 1 auto; min-height: 0; overflow: hidden; display: block;
   white-space: pre-wrap; overflow-wrap: anywhere; font: 10px/1.35 system-ui; opacity: .8;
 }
+.zn-library-note-card .zn-note-count { position: absolute; top: 7px; right: 8px; font: 500 10px/1 system-ui; opacity: .5; }
 .zn-library-note-card .zn-library-note-preview[hidden] { display: none; }
 .zn-library-note-card .zn-library-preview-heading { font-weight: 650; font-size: 11px; }
 .zn-library-note-card .zn-library-note-preview img { display: block; max-width: 100%; max-height: 84px; object-fit: contain; border-radius: 4px; }
 .zn-library-note-card .zn-library-note-preview .zen-notes-link { color: inherit; text-decoration: underline; }
 
-/* Default save directory button (round, bottom of the Library section). */
+/* Default save directory button: round, floats at the bottom of the Library panel
+   (position is set from JS so it works in both the Notes tab and the merged tab). */
 .zn-library-storage-btn {
-  position: sticky; bottom: 6px; display: grid; place-items: center; width: 30px; height: 30px;
-  margin: 10px 4px 4px auto; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
-  background: var(--zen-toolbar-element-bg, rgba(128,128,128,.18)); color: light-dark(#111111, #ffffff);
+  position: fixed; z-index: 5; display: grid; place-items: center; width: 30px; height: 30px;
+  margin: 0; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
+  background: var(--zen-toolbar-element-bg, rgba(128,128,128,.18)); color: var(--zl-ink);
 }
 .zn-library-storage-btn:hover { background: var(--zen-library-hover-bg, rgba(128,128,128,.3)); }
-.zn-library-storage-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.zn-library-storage-btn svg { width: 16px; height: 16px; opacity: .65; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.zn-library-storage-btn:hover svg { opacity: .9; }
+.zn-library-notes-grid, zen-library-easels-section .easel-card-grid { padding-bottom: 52px !important; }
