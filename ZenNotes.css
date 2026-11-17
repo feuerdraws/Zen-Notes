@@ -29,13 +29,7 @@
    NOTHING at all, no matter the specificity or !important. Dropping the
    bogus type qualifier and matching purely by the attribute we set
    ourselves is what actually reaches the element. */
-[zen-notes-tab="true"] .tab-icon-image,
-[zen-notes-tab="true"] .tab-icon-image:is(:hover, [selected]) {
-  -moz-context-properties: fill, fill-opacity, stroke, stroke-opacity !important;
-  fill: currentColor !important; fill-opacity: 1 !important;
-  stroke: currentColor !important; stroke-opacity: 1 !important;
-  /* size and opacity deliberately left to Zen, so the icon matches the other tabs' icons */
-}
+/* The note tab icon is a plain chrome icon, so Zen styles it (size, color, opacity) like the Easel and Settings icons. */
 
 .zen-notes-page-host {
   position: relative !important;
@@ -967,7 +961,7 @@ zen-library .zn-library-note-boost .zen-library-row-subtitle::after { content:"n
   margin: 0; padding: 0; border: 0; border-radius: var(--border-radius-medium, 8px); cursor: pointer; background: transparent;
   color: var(--toolbarbutton-icon-fill, var(--toolbar-color, inherit));
 }
-.zn-library-storage-btn:hover { background: var(--toolbarbutton-hover-background, var(--zen-library-hover-bg, rgba(128,128,128,.2))); }
+.zn-library-storage-btn:hover { background: color-mix(in srgb, white 18%, transparent); }
 .zn-library-storage-btn svg { width: 16px; height: 16px; opacity: .8; fill: currentColor; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; }
 .zn-library-storage-btn:hover svg { opacity: 1; }
 .zn-library-notes-grid, zen-library-easels-section .easel-card-grid { padding-bottom: 52px !important; }
