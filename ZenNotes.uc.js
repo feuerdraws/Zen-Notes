@@ -271,8 +271,23 @@ return module.exports; })();
           finally {this._nativeRename=null;this._markTab(tab,this._getNote(id));}
         },0);
       };
+      // The note's heading follows the sidebar field letter by letter; the file is only renamed on Enter.
+      this._onNativeRenameInput = event => {
+        const input = event.target; if (input?.id !== 'tab-label-input') return;
+        const tab = input.closest?.('tab.tabbrowser-tab') || globalThis.gZenVerticalTabsManager?._tabEdited;
+        const id = this._idFromTab(tab); if (!id || this.currentNoteId !== id) return;
+        const title = input.value?.replace(/\s+/g,' ').trim().replace(/\s+—\s+Note$/,'').trim();
+        const heading = document.getElementById('zen-notes-page-title');
+        if (heading && title && heading.textContent !== title) heading.textContent = title;
+      };
       this._onFindShortcut = event => {
-        if (event.target?.id==='tab-label-input' && event.key==='Escape') {this._cancelledRename=event.target;return;}
+        if (event.target?.id==='tab-label-input' && event.key==='Escape') {
+          this._cancelledRename=event.target;
+          const tab = event.target.closest?.('tab.tabbrowser-tab') || globalThis.gZenVerticalTabsManager?._tabEdited;
+          const id = this._idFromTab(tab), note = this._getNote(id), heading = document.getElementById('zen-notes-page-title');
+          if (note && heading && this.currentNoteId === id) heading.textContent = note.title;
+          return;
+        }
         if (event.target?.id === "tab-label-input" && event.key === "Enter" && !event.isComposing) {
           const tab = event.target.closest?.("tab.tabbrowser-tab") || globalThis.gZenVerticalTabsManager?._tabEdited;
           const id = this._idFromTab(tab);
@@ -345,6 +360,7 @@ return module.exports; })();
         window.addEventListener("keypress", this._onQuickNavigation, true);
         window.addEventListener("keyup", this._onQuickNavigation, true);
         document.addEventListener("focusout",this._onNativeRenameBlur,true);
+        document.addEventListener("input",this._onNativeRenameInput,true);
         document.addEventListener("popupshowing", this._onPopupShowing, false);
         gBrowser.tabContainer.addEventListener("TabSelect", this._onTabSelect);
         document.addEventListener("TabClose", this._onTabClose, true);
@@ -5342,6 +5358,7 @@ function run(argv) {
       window.removeEventListener("keypress", this._onQuickNavigation, true);
       window.removeEventListener("keyup", this._onQuickNavigation, true);
       document.removeEventListener("focusout",this._onNativeRenameBlur,true);
+      document.removeEventListener("input",this._onNativeRenameInput,true);
       document.removeEventListener("popupshowing", this._onPopupShowing, false);
       document.removeEventListener("command", this._onNativeBoostButton, true);
       gBrowser?.tabContainer?.removeEventListener("TabSelect", this._onTabSelect);
