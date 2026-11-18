@@ -236,7 +236,7 @@ return module.exports; })();
       let storageDir = Paths.join(Paths.profileDir, "zen-notes");
       try { const custom = Services.prefs.getStringPref("zen-notes.storage-dir", ""); if (custom) storageDir = custom; } catch {}
       this.storageDir = storageDir;
-      this.indexPath = Paths.join(this.storageDir, "index.json");
+      this.indexPath = Paths.join(this.storageDir, ".index.json"); // dot-name: vaults such as Obsidian hide it
       this.currentNoteId = null;
       this.noteTabs = new Map();
       this.saveTimer = null;
@@ -501,7 +501,11 @@ return module.exports; })();
       if (Service.engineManager.get("zennotestest")) return Service;
       const { SyncEngine, Store, LegacyTracker } = ChromeUtils.importESModule("resource://services-sync/engines.sys.mjs");
       const { CryptoWrapper } = ChromeUtils.importESModule("resource://services-sync/record.sys.mjs");
-      const directory = Paths.join(this.storageDir, "sync-test-v1");
+      let directory = Paths.join(this.storageDir, ".sync-test-v1");
+      const legacyDirectory = Paths.join(this.storageDir, "sync-test-v1");
+      if (!(await FileIO.exists(directory)) && await FileIO.exists(legacyDirectory)) {
+        try { await FileIO.move(legacyDirectory, directory); } catch (error) { console.error(LOG, "Could not hide sync folder", error); directory = legacyDirectory; }
+      }
       await FileIO.makeDirectory(directory, { ignoreExisting: true });
       const controller = () => {
         for (const win of Services.wm.getEnumerator("navigator:browser")) if (!win.closed && win.gZenNotes) return win.gZenNotes;
@@ -618,16 +622,21 @@ return module.exports; })();
           if (await FileIO.exists(this._deletedPath(value.noteId))) continue;
           const existing = this._getNote(value.noteId);
           if (existing) {
+            // This device already has the same or a newer edit: nothing to restore, and no conflicting copy.
+            const localTime = Date.parse(existing.updatedAt || existing.createdAt), remoteTime = Date.parse(value.updatedAt);
+            if (Number.isFinite(localTime) && Number.isFinite(remoteTime) && localTime >= remoteTime) continue;
             const current = await this._readNote(existing);
             if (current.title === value.title && current.body === value.body) continue;
             const copyID = "sync-" + id;
             if (this._getNote(copyID) || await FileIO.exists(this._deletedPath(copyID))) continue;
             const title = value.title + " (Sync copy)";
-            await FileIO.writeUTF8(this._notePath(copyID), value.body);
-            this.notes.push({ id: copyID, plain: true, title, createdAt: value.updatedAt, updatedAt: value.updatedAt, syncTestCopy: true });
+            const copy = { id: copyID, title, createdAt: value.updatedAt, updatedAt: value.updatedAt, syncTestCopy: true };
+            await this._writeNoteFile(copyID, title, value.body, copy);
+            this.notes.push(copy);
           } else {
-            await FileIO.writeUTF8(this._notePath(value.noteId), value.body);
-            this.notes.push({ id: value.noteId, plain: true, title: value.title, createdAt: value.updatedAt, updatedAt: value.updatedAt });
+            const added = { id: value.noteId, title: value.title, createdAt: value.updatedAt, updatedAt: value.updatedAt };
+            await this._writeNoteFile(value.noteId, value.title, value.body, added);
+            this.notes.push(added);
           }
         }
         await this._writeIndex();
@@ -670,6 +679,12 @@ return module.exports; })();
     }
 
     async _loadIndex() {
+      // One-off: the index used to be a visible "index.json".
+      const legacyIndex = Paths.join(this.storageDir, "index.json");
+      if (this.indexPath !== legacyIndex && !(await FileIO.exists(this.indexPath)) && await FileIO.exists(legacyIndex)) {
+        try { await FileIO.move(legacyIndex, this.indexPath); }
+        catch (error) { console.error(LOG, "Could not move index.json", error); this.indexPath = legacyIndex; }
+      }
       if (!(await FileIO.exists(this.indexPath))) {
         this.notes = [];
       this._quickNotes = new Map();
@@ -945,6 +960,7 @@ return module.exports; })();
       const source = body.slice(0,2000000).match(/!\[[^\]\n]*\]\((data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+)\)/i)?.[1];
       if (source) { const img = this._html("img"); img.src = source; img.alt = ""; preview.replaceChildren(img); preview.hidden = false; return; }
       preview.replaceChildren();
+      for (const prop of ["display", "-webkit-box-orient", "-webkit-line-clamp", "line-clamp"]) preview.style.removeProperty(prop);
       const excerpt = body.slice(0,4096).replace(/!\[([^\]]*)\]\([^)]*\)/g,"$1").replace(/<[^>]*>/g,"").replace(/data:[^\s)]*/g,"").slice(0,1400);
       if (!excerpt.trim()) { preview.hidden = true; return; }
       preview.hidden = false;
@@ -954,6 +970,28 @@ return module.exports; })();
         if (heading) line.className = "zn-library-preview-heading";
         preview.append(line);
       }
+      this._clampPreview(preview);
+    }
+
+    // Text that doesn't fit the card ends in "…" instead of being cut mid-line.
+    _clampPreview(preview) {
+      const fit = () => {
+        if (!preview.isConnected || preview.hidden || !preview.clientHeight) return false;
+        for (const prop of ["display", "-webkit-box-orient", "-webkit-line-clamp", "line-clamp"]) preview.style.removeProperty(prop);
+        const room = preview.clientHeight;
+        if (preview.scrollHeight <= room + 1) return true;
+        const lineHeight = parseFloat(getComputedStyle(preview).lineHeight) || 13.5;
+        preview.style.display = "-webkit-box"; preview.style.setProperty("-webkit-box-orient", "vertical");
+        for (let lines = Math.max(1, Math.floor(room / lineHeight)); lines >= 1; lines--) {
+          preview.style.setProperty("-webkit-line-clamp", String(lines)); preview.style.setProperty("line-clamp", String(lines));
+          if (preview.scrollHeight <= preview.clientHeight + 1) break;
+        }
+        return true;
+      };
+      if (fit()) return;
+      const observer = new ResizeObserver(() => { if (fit()) observer.disconnect(); });
+      observer.observe(preview);
+      window.setTimeout(() => observer.disconnect(), 5000);
     }
 
     _storageButton() {
@@ -1005,9 +1043,9 @@ return module.exports; })();
       await this._writes;
       for (const path of await FileIO.getChildren(this.storageDir)) {
         const name = Paths.filename(path);
-        if (name === "sync-test-v1") continue;
+        if (name === "sync-test-v1" || name === ".sync-test-v1") continue;
         const dest = Paths.join(dir, name);
-        if (name === "index.json" && await FileIO.exists(dest)) {
+        if ((name === ".index.json" || name === "index.json") && await FileIO.exists(dest)) {
           try {
             const mine = JSON.parse(await FileIO.readUTF8(path)), theirs = JSON.parse(await FileIO.readUTF8(dest));
             const known = new Set((theirs.notes || []).map(note => note.id));
@@ -4218,7 +4256,9 @@ function run(argv) {
       const raw = (await FileIO.readUTF8(path)).replace(/\r\n/g, "\n");
       const note = await this.createNote();
       const match = raw.match(/^# (.*)\n(?:\n)?/);
-      document.getElementById("zen-notes-page-title").textContent = match ? match[1] : "Imported Note";
+      // Keeps the original name: its first heading, or else the file's own name.
+      const original = (match ? match[1] : Paths.filename(path).replace(/\.(md|markdown|txt)$/i, "")).replace(/[\r\n]/g, " ").trim() || "Untitled";
+      document.getElementById("zen-notes-page-title").textContent = `${original} (Imported Note)`;
       this._setBody(match ? raw.slice(match[0].length) : raw);
       await this._saveCurrentNow();
       return note;
@@ -5194,8 +5234,12 @@ function run(argv) {
           const keep = new Set(["context_moveTabToGroup", "context_moveTabToSplitView", "context_separateSplitView", "context_reverseSplitView"]);
           for (const child of popup.children) {
             states.push([child, child.hidden]);
-            if (!keep.has(child.id)) child.hidden = true;
+            // Zen's split-view rows ("Split Out Tab", "Share Split View…") only show on split tabs; leave them as Zen has them.
+            const splitRow = !child.hidden && /split/i.test(`${child.id || ""} ${child.getAttribute?.("label") || ""}`);
+            if (!keep.has(child.id) && !splitRow) child.hidden = true;
           }
+          const nativeUnload = [...popup.querySelectorAll("menuitem")].find(node =>
+            /unload tab/i.test(node.getAttribute("label") || node.label || "") || /unload/i.test(node.id || ""));
           // Zen's own "Change label…" row, found before the menu is trimmed; the existing Enter/blur hooks save the new title.
           const nativeRename = [...popup.querySelectorAll("menuitem")].find(node =>
             /change label|edit label|rename/i.test(node.getAttribute("label") || node.label || "")
@@ -5204,6 +5248,7 @@ function run(argv) {
           append(this._menuItem("Duplicate Note", () => this._duplicateNote(id)));
           append(document.createXULElement("menuseparator"));
           append(this._menuItem(tab.pinned ? "Unpin Note" : "Pin Note", () => tab.pinned ? gBrowser.unpinTab(tab) : gBrowser.pinTab(tab)));
+          append(this._menuItem("Unload Note", () => nativeUnload ? nativeUnload.doCommand() : gBrowser.explicitUnloadTabs?.([tab])));
           append(document.createXULElement("menuseparator"));
           append(this._menuItem("Export Note…", () => this._exportNote(id)));
           append(document.createXULElement("menuseparator"));

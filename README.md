@@ -186,9 +186,9 @@ The compatibility engine name remains `zennotestest`; changing that identifier w
 Notes live in the active Zen profile's `zen-notes` directory:
 
 - `<title>.md` — Markdown content only; the title is the file name.
-- `index.json` — note metadata.
+- `.index.json` — note metadata.
 - `.deleted/` — local deletion markers.
-- `sync-test-v1/` — Sync engine working data.
+- `.sync-test-v1/` — Sync engine working data.
 
 Quick draft IDs are also stored in browser preferences. Backing up the whole profile preserves those preferences as well as the notes. To back up note content alone, copy the `zen-notes` directory while Zen is closed or export individual notes as Markdown.
 
