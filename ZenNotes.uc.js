@@ -263,6 +263,7 @@ return module.exports; })();
         const tab=event.target.closest?.('tab.tabbrowser-tab') || globalThis.gZenVerticalTabsManager?._tabEdited;
         // The tab shows "<title> — Note"; the field starts with that, so the suffix is not part of the title.
         const id=this._idFromTab(tab), raw=event.target.value?.replace(/\s+/g,' ').trim(), title=raw?.replace(/\s+—\s+Note$/,'').trim();
+        if (id && !title && this.currentNoteId === id) { const note=this._getNote(id), heading=document.getElementById('zen-notes-page-title'); if (note && heading) heading.textContent=note.title; }
         if (!id || !title || (this._nativeRename?.tab===tab && this._nativeRename.title===title)) return;
         window.setTimeout(async()=>{
           if (tab.closing || (tab.zenStaticLabel !== raw && tab.getAttribute('label') !== raw)) return;
@@ -278,7 +279,7 @@ return module.exports; })();
         const id = this._idFromTab(tab); if (!id || this.currentNoteId !== id) return;
         const title = input.value?.replace(/\s+/g,' ').trim().replace(/\s+—\s+Note$/,'').trim();
         const heading = document.getElementById('zen-notes-page-title');
-        if (heading && title && heading.textContent !== title) heading.textContent = title;
+        if (heading && heading.textContent !== title) heading.textContent = title; // empty field, empty heading
       };
       this._onFindShortcut = event => {
         if (event.target?.id==='tab-label-input' && event.key==='Escape') {
@@ -292,6 +293,7 @@ return module.exports; })();
           const tab = event.target.closest?.("tab.tabbrowser-tab") || globalThis.gZenVerticalTabsManager?._tabEdited;
           const id = this._idFromTab(tab);
           const title = event.target.value?.replace(/\s+/g, " ").trim().replace(/\s+—\s+Note$/, "").trim();
+          if (id && !title && this.currentNoteId === id) { const note = this._getNote(id), heading = document.getElementById("zen-notes-page-title"); if (note && heading) heading.textContent = note.title; }
           if (id && title) {
             this._nativeRename = { tab, id, title };
             window.setTimeout(async () => {
