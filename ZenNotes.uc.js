@@ -605,11 +605,11 @@ return module.exports; })();
             const copyID = "sync-" + id;
             if (this._getNote(copyID) || await FileIO.exists(this._deletedPath(copyID))) continue;
             const title = value.title + " (Sync copy)";
-            await FileIO.writeUTF8(this._notePath(copyID), `# ${title}\n\n${value.body}`);
-            this.notes.push({ id: copyID, title, createdAt: value.updatedAt, updatedAt: value.updatedAt, syncTestCopy: true });
+            await FileIO.writeUTF8(this._notePath(copyID), value.body);
+            this.notes.push({ id: copyID, plain: true, title, createdAt: value.updatedAt, updatedAt: value.updatedAt, syncTestCopy: true });
           } else {
-            await FileIO.writeUTF8(this._notePath(value.noteId), `# ${value.title}\n\n${value.body}`);
-            this.notes.push({ id: value.noteId, title: value.title, createdAt: value.updatedAt, updatedAt: value.updatedAt });
+            await FileIO.writeUTF8(this._notePath(value.noteId), value.body);
+            this.notes.push({ id: value.noteId, plain: true, title: value.title, createdAt: value.updatedAt, updatedAt: value.updatedAt });
           }
         }
         await this._writeIndex();
@@ -1194,8 +1194,8 @@ return module.exports; })();
         return this._enqueueWrite(async () => {
           const current = this._getNote(id);
           if (!current || await FileIO.exists(this._deletedPath(id))) throw new Error("This note was deleted");
-          await FileIO.writeUTF8(this._notePath(id), `# ${name}\n\n${text}`);
-          current.title = name; current.updatedAt = new Date().toISOString();
+          await FileIO.writeUTF8(this._notePath(id), text);
+          current.plain = true; current.title = name; current.updatedAt = new Date().toISOString();
           await this._writeIndex(); this._syncTabAppearance(id);
         });
       };
@@ -1458,7 +1458,7 @@ return module.exports; })();
         const saved = { id, title: note.title || "New Note", createdAt: note.createdAt, updatedAt: note.updatedAt,
           compactVideos: note.compactVideos, videoTitles: note.videoTitles };
         await this._enqueueWrite(async () => {
-          await this._writeNoteFile(id, saved.title, `# ${saved.title}\n\n${note.body || ""}`, saved);
+          await this._writeNoteFile(id, saved.title, note.body || "", saved);
           this.notes.unshift(saved);
           try { await this._writeIndex(); } catch (error) { this.notes = this.notes.filter(item => item.id !== id); throw error; }
         });
@@ -1623,7 +1623,7 @@ return module.exports; })();
       const copy = { ...JSON.parse(JSON.stringify(note)), id: this._makeId(), title: this._copyTitle(data.title), createdAt: now, updatedAt: now };
       delete copy.file;
       await this._enqueueWrite(async () => {
-        await this._writeNoteFile(copy.id, copy.title, `# ${copy.title}\n\n${data.body}`, copy);
+        await this._writeNoteFile(copy.id, copy.title, data.body, copy);
         this.notes.unshift(copy);
         try { await this._writeIndex(); } catch (error) { this.notes = this.notes.filter(item => item.id !== copy.id); throw error; }
       });
@@ -1644,20 +1644,26 @@ return module.exports; })();
       if (this.currentNoteId === id) await this._saveCurrentNow();
       const note = this._getNote(id); if (!note) return;
       title = title.replace(/[\r\n]/g, " ").trim() || "New Note";
-      if (!note.quick) await this._enqueueWrite(async () => {
-        if (!(await FileIO.exists(this._notePath(id))) || await FileIO.exists(this._deletedPath(id))) return;
-        const data = await this._readNote(note);
-        await this._writeNoteFile(id, title, `# ${title}\n\n${data.body}`, note);
-        note.title = title; note.updatedAt = new Date().toISOString(); await this._writeIndex();
-      });
-      else note.title = title;
+      note.title = title; // live UI never waits on the file system
+      if (!note.quick) try {
+        await this._enqueueWrite(async () => {
+          if (!(await FileIO.exists(this._notePath(id))) || await FileIO.exists(this._deletedPath(id))) return;
+          const data = await this._readNote({ ...note, title: note.title });
+          try { await this._writeNoteFile(id, title, data.body, note); }
+          catch (error) { // e.g. file locked by another app: keep the old name, still save the text
+            console.error(LOG, "Rename move failed", error);
+            await FileIO.writeUTF8(this._notePath(id), data.body);
+          }
+          note.updatedAt = new Date().toISOString(); await this._writeIndex();
+        });
+      } catch (error) { console.error(LOG, "Rename failed", error); }
       for (const win of Services.wm.getEnumerator("navigator:browser")) {
         const controller = win.gZenNotes, other = controller?._getNote(id); if (!other) continue;
         other.title = note.title;
         for (const tab of Array.from(win.gZenWorkspaces?.allStoredTabs || win.gBrowser.tabs)) if (controller._idFromTab(tab) === id) {
           controller._markTab(tab, other);
-          const previewTitle = controller._getHost(tab)?.querySelector(".zen-notes-preview-title");
-          if (previewTitle) previewTitle.textContent = note.title;
+          const host = controller._getHost(tab);
+          for (const heading of host?.querySelectorAll(".zen-notes-preview-title, #zen-notes-page-title") || []) heading.textContent = note.title;
         }
         if (controller.currentNoteId === id) {
           const heading = win.document.getElementById("zen-notes-page-title"); if (heading) heading.textContent = note.title;
@@ -1809,6 +1815,11 @@ return module.exports; })();
         if (note) note.file = name;
       }
       await FileIO.writeUTF8(Paths.join(this.storageDir, name), text);
+      for (const win of Services.wm.getEnumerator("navigator:browser")) {
+        const other = win.gZenNotes?.notes?.find(item => item.id === id);
+        if (other) other.plain = true;
+      }
+      if (note) note.plain = true;
     }
 
     // One-off: gives notes saved as "<id>.md" a readable title-based name.
@@ -1824,6 +1835,17 @@ return module.exports; })();
           if (name !== own) await FileIO.move(Paths.join(this.storageDir, own), Paths.join(this.storageDir, name));
           note.file = name; changed = true;
         } catch (error) { console.error(LOG, "Could not rename note file", error); }
+      }
+      // Strip the legacy "# Title" first line so the file reads cleanly in other apps.
+      for (const note of this.notes) {
+        if (note.plain || note.quick || !note.id) continue;
+        try {
+          const path = this._notePath(note.id);
+          if (!(await FileIO.exists(path))) continue;
+          const data = await this._readNote(note);
+          await FileIO.writeUTF8(path, data.body);
+          note.title = data.title; note.plain = true; changed = true;
+        } catch (error) { console.error(LOG, "Could not strip legacy heading", error); }
       }
       if (changed) await this._writeIndex();
     }
@@ -1865,7 +1887,7 @@ return module.exports; })();
       await this._saveCurrentNow();
       const now = new Date().toISOString();
       const note = { id: this._makeId(), title: "New Note", createdAt: now, updatedAt: now };
-      await this._writeNoteFile(note.id, "New Note", "# New Note\n\n", note);
+      await this._writeNoteFile(note.id, "New Note", "", note);
       this.notes.unshift(note);
       await this._writeIndex();
 
@@ -1887,8 +1909,9 @@ return module.exports; })();
         const raw = (await FileIO.readUTF8(path)).replace(/\r\n/g, "\n");
         const lines = raw.split("\n");
         let title = note.title || "New Note";
-        if (lines[0]?.startsWith("# ")) {
-          title = lines.shift().slice(2).trim() || "New Note";
+        // Legacy files started with "# Title"; the title now lives in the file name.
+        if (!note.plain && lines[0]?.startsWith("# ")) {
+          title = lines.shift().slice(2).trim() || title;
           if (lines[0] === "") lines.shift();
         }
         return { title, body: lines.join("\n") };
@@ -1928,7 +1951,7 @@ return module.exports; })();
 
       await this._enqueueWrite(async () => {
         if (this._closingNotes.has(note.id) || await FileIO.exists(this._deletedPath(note.id)) || !(await FileIO.exists(this._notePath(note.id)))) { await this._filterDeletedNotes(); return; }
-        await this._writeNoteFile(note.id, noteTitle, `# ${noteTitle}\n\n${body}`, note);
+        await this._writeNoteFile(note.id, noteTitle, body, note);
         await this._writeIndex();
       });
       this._syncTabAppearance(note.id);
@@ -5015,7 +5038,7 @@ function run(argv) {
         const note = this._getNote(id);
         if (!note || this._closingNotes.has(id) || await FileIO.exists(this._deletedPath(id)) || !(await FileIO.exists(this._notePath(id)))) { await this._filterDeletedNotes(); return; }
         const data = await this._readNote(note);
-        await this._writeNoteFile(id, data.title, `# ${data.title}\n\n${this._appendBody(data.body, text, kind)}`);
+        await this._writeNoteFile(id, data.title, this._appendBody(data.body, text, kind));
         note.updatedAt = new Date().toISOString();
         await this._writeIndex();
         added = true;
