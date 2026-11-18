@@ -976,21 +976,29 @@ return module.exports; })();
     // Text that doesn't fit the card ends in "…" instead of being cut mid-line.
     _clampPreview(preview) {
       const fit = () => {
-        if (!preview.isConnected || preview.hidden || !preview.clientHeight) return false;
+        const frame = preview.offsetParent;
+        if (!preview.isConnected || preview.hidden || !frame || !frame.clientHeight) return false;
+        // The room is measured from the card, not from the preview itself, so clamping can't feed back into it.
+        const padBottom = parseFloat(getComputedStyle(frame).paddingBottom) || 0;
+        const room = frame.clientHeight - preview.offsetTop - padBottom;
+        if (room < 8) return false;
         for (const prop of ["display", "-webkit-box-orient", "-webkit-line-clamp", "line-clamp"]) preview.style.removeProperty(prop);
-        const room = preview.clientHeight;
         if (preview.scrollHeight <= room + 1) return true;
         const lineHeight = parseFloat(getComputedStyle(preview).lineHeight) || 13.5;
         preview.style.display = "-webkit-box"; preview.style.setProperty("-webkit-box-orient", "vertical");
         for (let lines = Math.max(1, Math.floor(room / lineHeight)); lines >= 1; lines--) {
           preview.style.setProperty("-webkit-line-clamp", String(lines)); preview.style.setProperty("line-clamp", String(lines));
-          if (preview.scrollHeight <= preview.clientHeight + 1) break;
+          if (preview.scrollHeight <= room + 1) break;
         }
         return true;
       };
       if (fit()) return;
-      const observer = new ResizeObserver(() => { if (fit()) observer.disconnect(); });
-      observer.observe(preview);
+      // Not laid out yet: try again as soon as the card has a size, once it settles.
+      const frame = preview.offsetParent || preview.parentElement;
+      if (!frame) return;
+      let tries = 0;
+      const observer = new ResizeObserver(() => { if (!preview.isConnected || fit() || ++tries > 10) observer.disconnect(); });
+      observer.observe(frame);
       window.setTimeout(() => observer.disconnect(), 5000);
     }
 
@@ -1083,13 +1091,16 @@ return module.exports; })();
           if(done)return;done=true;
           input.removeEventListener("keydown",keys);input.removeEventListener("blur",blur);input.removeEventListener("click",stop);
           if(input.isConnected)input.replaceWith(strong);
-          if(save)await this._renameNote(id,input.value);
+          const typed=input.value.replace(/\s+/g," ").trim();
+          if(save&&typed&&typed!==this._getNote(id)?.title)await this._renameNote(id,typed);
+          else this._previewRename(id,null); // cancelled, empty or unchanged: the open note goes back to its name
           this._notesLibrarySignature=null;this._refreshNotesLibrary();
         };
         const stop=event=>event.stopPropagation();
         const keys=event=>{event.stopPropagation();if(event.key==="Enter"||event.key==="Escape"){event.preventDefault();finish(event.key==="Enter").catch(console.error);}};
         const blur=()=>finish(true).catch(console.error);
         input.addEventListener("click",stop);input.addEventListener("keydown",keys);input.addEventListener("blur",blur);
+        input.addEventListener("input",()=>this._previewRename(id,input.value));
       });
       action("Duplicate Note",()=>this._duplicateNote(id));
       popup.append(document.createXULElement("menuseparator"));
@@ -1694,6 +1705,27 @@ return module.exports; })();
       const file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
       file.initWithPath(this._notePath(id));
       try { file.reveal(); } catch { file.parent.launch(); }
+    }
+
+    // Library rename, letter by letter: an open copy of the note (heading and tab label) follows the field.
+    // value === null puts the saved title back. Nothing is written to disk here.
+    _previewRename(id, value) {
+      for (const win of Services.wm.getEnumerator("navigator:browser")) {
+        const controller = win.gZenNotes, note = controller?._getNote(id); if (!note) continue;
+        const typed = value === null ? note.title : String(value).replace(/\s+/g, " ").trim();
+        for (const tab of Array.from(win.gZenWorkspaces?.allStoredTabs || win.gBrowser.tabs)) {
+          if (controller._idFromTab(tab) !== id) continue;
+          if (value === null) { controller._markTab(tab, note); continue; }
+          if (!typed) continue;
+          const label = `${typed} — Note`;
+          try { tab.zenStaticLabel = label; } catch {}
+          tab.setAttribute("label", label); tab.label = label;
+        }
+        if (controller.currentNoteId === id) {
+          const heading = win.document.getElementById("zen-notes-page-title");
+          if (heading && heading.textContent !== typed) heading.textContent = typed; // empty field, empty heading
+        }
+      }
     }
 
     async _renameNote(id, title) {
