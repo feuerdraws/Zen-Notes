@@ -1665,9 +1665,9 @@ return module.exports; })();
           const host = controller._getHost(tab);
           for (const heading of host?.querySelectorAll(".zen-notes-preview-title, #zen-notes-page-title") || []) heading.textContent = note.title;
         }
-        if (controller.currentNoteId === id) {
-          const heading = win.document.getElementById("zen-notes-page-title"); if (heading) heading.textContent = note.title;
-        }
+        const live = win.document.getElementById("zen-notes-page-title");
+        console.log(LOG, "sidebar rename", { id, current: controller.currentNoteId, heading: !!live });
+        if (live && (controller.currentNoteId === id || !controller.currentNoteId)) live.textContent = note.title;
       }
     }
 
