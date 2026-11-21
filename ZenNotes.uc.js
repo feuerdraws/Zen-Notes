@@ -960,7 +960,7 @@ return module.exports; })();
       const source = body.slice(0,2000000).match(/!\[[^\]\n]*\]\((data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+)\)/i)?.[1];
       if (source) { const img = this._html("img"); img.src = source; img.alt = ""; preview.replaceChildren(img); preview.hidden = false; return; }
       preview.replaceChildren();
-      for (const prop of ["display", "-webkit-box-orient", "-webkit-line-clamp", "line-clamp"]) preview.style.removeProperty(prop);
+      for (const prop of ["display", "flex", "-webkit-box-orient", "-webkit-line-clamp", "line-clamp"]) preview.style.removeProperty(prop);
       const excerpt = body.slice(0,4096).replace(/!\[([^\]]*)\]\([^)]*\)/g,"$1").replace(/<[^>]*>/g,"").replace(/data:[^\s)]*/g,"").slice(0,1400);
       if (!excerpt.trim()) { preview.hidden = true; return; }
       preview.hidden = false;
@@ -982,13 +982,14 @@ return module.exports; })();
         const padBottom = parseFloat(getComputedStyle(frame).paddingBottom) || 0;
         const room = frame.clientHeight - preview.offsetTop - padBottom;
         if (room < 8) return false;
-        for (const prop of ["display", "-webkit-box-orient", "-webkit-line-clamp", "line-clamp"]) preview.style.removeProperty(prop);
+        for (const prop of ["display", "flex", "-webkit-box-orient", "-webkit-line-clamp", "line-clamp"]) preview.style.removeProperty(prop);
         if (preview.scrollHeight <= room + 1) return true;
         const lineHeight = parseFloat(getComputedStyle(preview).lineHeight) || 13.5;
-        preview.style.display = "-webkit-box"; preview.style.setProperty("-webkit-box-orient", "vertical");
+        // scrollHeight still counts the lines a clamp hides, so the clamped box's own height is what is compared.
+        preview.style.display = "-webkit-box"; preview.style.setProperty("-webkit-box-orient", "vertical"); preview.style.flex = "none";
         for (let lines = Math.max(1, Math.floor(room / lineHeight)); lines >= 1; lines--) {
           preview.style.setProperty("-webkit-line-clamp", String(lines)); preview.style.setProperty("line-clamp", String(lines));
-          if (preview.scrollHeight <= room + 1) break;
+          if (preview.offsetHeight <= room + 1) break;
         }
         return true;
       };
