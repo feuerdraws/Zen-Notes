@@ -417,7 +417,7 @@
 
 .zen-notes-line.is-quote:not(.is-editing) {
   margin: 0; padding: 6px 18px; border-left: 0; opacity: 1;
-  background: light-dark(#e5f1fc, #243849);
+  background: var(--zn-quote-bg); background-attachment: fixed;
 }
 .zen-notes-line.is-quote-start:not(.is-editing) { border-radius: 10px 10px 0 0; padding-top: 14px; }
 .zen-notes-line.is-quote-end:not(.is-editing) { border-radius: 0 0 10px 10px; padding-bottom: 14px; }
@@ -426,11 +426,11 @@
 .zen-notes-video-card img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
 .zen-notes-video-card > span { display: block; padding: 10px 14px; }
 
-:is(#zen-notes-editor, .zen-notes-preview-editor) > .is-quote { margin: 0; padding: 6px 18px; border-left: 0; opacity: 1; background: light-dark(#e5f1fc, #243849); border-radius: 0; }
+:is(#zen-notes-editor, .zen-notes-preview-editor) > .is-quote { margin: 0; padding: 6px 18px; border-left: 0; opacity: 1; background: var(--zn-quote-bg); background-attachment: fixed; border-radius: 0; }
 :is(#zen-notes-editor, .zen-notes-preview-editor) > .is-quote:not(.is-quote + .is-quote) { border-top-left-radius: 10px; border-top-right-radius: 10px; padding-top: 14px; }
 :is(#zen-notes-editor, .zen-notes-preview-editor) > .is-quote:not(:has(+ .is-quote)) { border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; padding-bottom: 14px; }
 
-:is(#zen-notes-editor, .zen-notes-preview-editor) > .is-quote { background: color-mix(in srgb, var(--zen-notes-accent) 12%, var(--zen-notes-page-bg)); color: var(--zen-notes-page-fg); }
+:is(#zen-notes-editor, .zen-notes-preview-editor) > .is-quote { background: var(--zn-quote-bg); background-attachment: fixed; color: var(--zen-notes-page-fg); }
 [zen-notes-tab="true"] :is(.tab-throbber, .tab-icon-pending) { display: none !important; }
 [zen-notes-tab="true"] .tab-icon-image {
   display: block !important;
@@ -941,9 +941,12 @@ zen-library .zn-library-note-boost .zen-library-row-subtitle::after { content:"n
 .zn-library-note-card .zn-library-preview-heading { font-weight: 650; font-size: 11px; }
 /* Same look as the editor's block quote: a filled, rounded block (blue-grey in light, deep blue in dark). */
 .zn-library-note-card .zn-library-preview-quote {
-  display: block; margin: 2px 0; padding: 3px 7px; border-radius: 6px; background: #e5f1fc; color: #1f2933;
+  display: block; margin: 2px 0; padding: 3px 7px; border-radius: 6px;
+  --zn-card-wash: color-mix(in srgb, var(--zl-body, #fff) 76%, transparent);
+  background: linear-gradient(var(--zn-card-wash), var(--zn-card-wash)), var(--zen-main-browser-background, var(--zen-primary-color, #5b8bb8));
+  background-attachment: fixed;
 }
-html[data-zl-scheme="dark"] .zn-library-note-card .zn-library-preview-quote { background: #243849; color: inherit; }
+html[data-zl-scheme="dark"] .zn-library-note-card .zn-library-preview-quote { --zn-card-wash: color-mix(in srgb, var(--zl-body, #222) 68%, transparent); }
 .zn-library-note-card .zn-library-note-preview mark { color: inherit; background: color-mix(in srgb, #ffd95a 42%, transparent); border-radius: .17em; padding: 0 .07em; }
 .zn-library-note-card .zn-library-note-preview span[style*="background-color"] { border-radius: .17em; padding: 0 .07em; }
 /* Subfolder heading: name on the left, a line after it (like the pinned-tabs separator). Same rule lives in Zen Easel. */
@@ -989,3 +992,57 @@ html[data-zl-scheme="dark"] .zn-library-note-card .zn-library-preview-quote { ba
   background: color-mix(in srgb, currentColor 8%, transparent); color: inherit; outline: none;
   font: 700 12px/1.2 inherit; letter-spacing: -0.02em;
 }
+
+/* Block quotes wear the current space's theme: its gradient (or its colour) washed with the page colour, so
+   it stays readable. Lighter wash in light mode, heavier in dark mode; the gradient stays fixed to the window. */
+:is(#zen-notes-page, .zen-notes-page-preview) {
+  --zn-quote-wash: color-mix(in srgb, var(--zen-notes-page-bg, #fbfbfb) 76%, transparent);
+  --zn-quote-bg: linear-gradient(var(--zn-quote-wash), var(--zn-quote-wash)),
+    var(--zen-main-browser-background, var(--zen-primary-color, #5b8bb8));
+}
+html[data-zl-scheme="dark"] :is(#zen-notes-page, .zen-notes-page-preview) {
+  --zn-quote-wash: color-mix(in srgb, var(--zen-notes-page-bg, #1b1b1b) 68%, transparent);
+}
+
+/* A custom icon chosen with Zen's "Change Icon…": an emoji, or one of Zen's icons coloured like the note icon. */
+.zn-library-note-card .zn-note-emoji { display: block; font-size: 16px; line-height: 18px; text-align: center; }
+.zn-library-note-card .zn-note-mask { display: block; background-color: currentColor; -webkit-mask: var(--zn-icon) center / contain no-repeat; mask: var(--zn-icon) center / contain no-repeat; }
+
+/* Top bar of a note: same layout as an easel's, in the note's own colours. */
+.zen-notes-footer.zen-notes-topbar {
+  top: 0; left: 0; right: 0; max-width: none; height: 44px; box-sizing: border-box; padding: 0 10px; z-index: 6;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; pointer-events: auto;
+  color: var(--zen-notes-page-fg); background: var(--zen-notes-page-bg);
+  border-bottom: 1px solid color-mix(in srgb, var(--zen-notes-page-fg) 12%, transparent); font: 13px/1.2 system-ui;
+}
+.zen-notes-topbar[hidden] { display: none; }
+:is(#zen-notes-page, .zen-notes-page-preview):has(> .zen-notes-topbar:not([hidden])) > .zen-notes-page-scroll { padding-top: 44px; }
+.zn-bar-left { position: relative; display: flex; align-items: center; min-width: 0; }
+.zn-bar-right { display: flex; align-items: center; gap: 8px; color: color-mix(in srgb, var(--zen-notes-page-fg) 52%, var(--zen-notes-page-bg)); }
+.zn-bar-created { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.zn-bar-switcher, .zn-bar-close {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 0; border-radius: 8px;
+  background: transparent; color: inherit; font: inherit; cursor: pointer; white-space: nowrap;
+}
+.zn-bar-switcher { color: var(--zen-notes-page-fg); font-weight: 600; max-width: 40ch; }
+.zn-bar-title { overflow: hidden; text-overflow: ellipsis; }
+.zn-bar-chevron { font-size: 10px; opacity: .6; }
+.zn-bar-switcher:hover, .zn-bar-close:hover { background: color-mix(in srgb, var(--zen-notes-page-fg) 8%, transparent); }
+.zn-bar-switcher.is-open { background: color-mix(in srgb, var(--zen-notes-page-fg) 14%, transparent); }
+.zn-bar-switcher:disabled, .zn-bar-close:disabled { cursor: default; }
+.zn-bar-list {
+  position: absolute; top: 34px; left: 0; min-width: 260px; max-height: 60vh; overflow-y: auto; padding: 6px; z-index: 10;
+  border: 1px solid color-mix(in srgb, var(--zen-notes-page-fg) 14%, transparent); border-radius: 14px;
+  background: var(--zen-notes-page-bg); box-shadow: 0 8px 28px rgba(0, 0, 0, .28);
+}
+.zn-bar-list[hidden] { display: none; }
+.zn-bar-item, .zn-bar-action {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--zen-notes-page-fg); font: inherit; text-align: left; cursor: pointer;
+}
+.zn-bar-item:hover, .zn-bar-action:hover { background: color-mix(in srgb, var(--zen-notes-page-fg) 8%, transparent); }
+.zn-bar-item.is-current { background: color-mix(in srgb, var(--zen-notes-page-fg) 14%, transparent); font-weight: 600; }
+.zn-bar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zn-bar-when { flex: none; font-size: 11px; opacity: .55; }
+.zn-bar-action.is-danger { color: #e5484d; }
+.zn-bar-separator { height: 1px; margin: 6px 4px; background: color-mix(in srgb, var(--zen-notes-page-fg) 14%, transparent); }

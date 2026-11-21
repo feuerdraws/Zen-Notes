@@ -5,6 +5,86 @@
   const VERSION = "1.1.3";
   const HTML_NS = "http://www.w3.org/1999/xhtml";
   const NOTE_ICON_SVG = "<svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">\n<path d=\"M6 22C5.46957 22 4.96086 21.7893 4.58579 21.4142C4.21071 21.0391 4 20.5304 4 20V4C4 3.46957 4.21071 2.96086 4.58579 2.58579C4.96086 2.21072 5.46957 2 6 2H14C14.3166 1.99949 14.6301 2.06161 14.9225 2.18277C15.215 2.30394 15.4806 2.48176 15.704 2.706L19.292 6.294C19.5168 6.51751 19.6952 6.78335 19.8167 7.07616C19.9382 7.36898 20.0005 7.68297 20 8V20C20 20.5304 19.7893 21.0391 19.4142 21.4142C19.0391 21.7893 18.5304 22 18 22H6Z\" fill=\"context-fill\"/>\n<path d=\"M15.6443 3.50091C16.6399 4.43015 17.7732 5.52444 18.6889 6.49206C19.2553 7.09058 18.824 8 18 8H15C14.4477 8 14 7.55228 14 7V4.22684C14 3.36399 15.0136 2.91214 15.6443 3.50091Z\" fill=\"context-stroke\" fill-opacity=\"0.55\"/>\n<path d=\"M3 20V4C3 3.20435 3.3163 2.44151 3.87891 1.87891C4.44152 1.3163 5.20435 1 6 1H14V1.00098C14.4479 1.00046 14.8919 1.08734 15.3057 1.25879C15.7193 1.43022 16.0949 1.68198 16.4111 1.99902L19.9971 5.58496L20.1133 5.70605C20.3773 5.99585 20.5896 6.32951 20.7402 6.69238C20.9122 7.1067 21.0005 7.55143 21 8V20C21 20.7956 20.6837 21.5585 20.1211 22.1211C19.5585 22.6837 18.7957 23 18 23H6C5.20435 23 4.44152 22.6837 3.87891 22.1211C3.3163 21.5585 3 20.7956 3 20ZM5 20C5 20.2652 5.10543 20.5195 5.29297 20.707C5.48051 20.8946 5.73478 21 6 21H18C18.2652 21 18.5195 20.8946 18.707 20.707C18.8946 20.5195 19 20.2652 19 20V7.99805C19.0003 7.81344 18.9642 7.6305 18.8936 7.45996C18.8227 7.28915 18.7181 7.13331 18.5869 7.00293L14.9961 3.41211C14.8658 3.28135 14.7106 3.17712 14.54 3.10645C14.3695 3.03581 14.1865 2.99974 14.002 3H6C5.73478 3 5.4805 3.10543 5.29297 3.29297C5.10543 3.4805 5 3.73478 5 4V20Z\" fill=\"context-stroke\"/>\n<path d=\"M14 2V7C14 7.26522 14.1054 7.51957 14.2929 7.70711C14.4804 7.89464 14.7348 8 15 8H20M15 8H20\" stroke=\"context-stroke\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n</svg>\n";
+  // Tab context menu for note and easel tabs. Same snippet lives in Zen Easel and Zen Notes.
+  // It hides Zen's rows, then puts back the native ones it wants (and the mod's own rows) in a fixed order.
+  const ZLTabMenu = (() => {
+    const KINDS = [
+      ["folder", /^move to folder/i, /moveTabToGroup/],
+      ["reload", /^reload tab/i, /reloadTab/],
+      ["essentials", /essentials/i, /essentials/i],
+      ["icon", /^change icon/i, /change.?icon|tab.?icon/i],
+      ["pin", /^(?:un)?pin tab/i, /^context_(?:un)?pinTab$/],
+      ["moveTab", /^move tab$/i, /moveTabOptions/],
+      ["container", /new container tab/i, /container/i],
+      ["selectAll", /^select all tabs/i, /selectAll/i],
+      ["close", /^close tab$/i, /^context_closeTab$/],
+      ["closeMultiple", /close multiple tabs/i, /closeTabOptions/],
+      ["reopen", /reopen closed tab/i, /undoCloseTab/],
+    ];
+    const labelOf = node => node.getAttribute?.("label") || node.label || "";
+    const kindOf = node => { for (const [kind, byLabel, byId] of KINDS) if (byLabel.test(labelOf(node)) || byId.test(node.id || "")) return kind; return null; };
+    return {
+      // order(found) returns the final list: a native kind ("folder"), "splits", "sep", or a node the mod made.
+      arrange(popup, order) {
+        const original = [...popup.children];
+        const states = original.map(node => [node, node.hidden, node.getAttribute?.("label")]);
+        const found = {}, splits = [];
+        for (const node of original) {
+          if (node.hidden) continue;
+          const kind = kindOf(node);
+          if (kind && !found[kind]) found[kind] = node;
+          else if (/split/i.test(`${node.id || ""} ${labelOf(node)}`)) splits.push(node);
+        }
+        for (const node of original) node.hidden = true;
+        const list = [];
+        for (const entry of order(found)) {
+          if (entry === "sep") list.push("sep");
+          else if (entry === "splits") list.push(...splits);
+          else if (typeof entry === "string") { if (found[entry]) list.push(found[entry]); }
+          else if (entry) list.push(entry);
+        }
+        const tidy = [];
+        for (const entry of list) { if (entry === "sep" && (!tidy.length || tidy.at(-1) === "sep")) continue; tidy.push(entry); }
+        if (tidy.at(-1) === "sep") tidy.pop();
+        const known = new Set(original), added = [];
+        for (const entry of tidy) {
+          const node = entry === "sep" ? document.createXULElement("menuseparator") : entry;
+          node.hidden = false;
+          if (!known.has(node)) added.push(node);
+          popup.append(node);
+        }
+        return () => {
+          for (const node of added) node.remove();
+          for (const [node, hidden, label] of states) {
+            node.hidden = hidden;
+            if (label != null && node.getAttribute("label") !== label) node.setAttribute("label", label);
+          }
+          for (const node of original) popup.append(node); // Zen's own order
+        };
+      },
+      // Zen's "Change Icon…" picker has no callback here, so the tab is watched until its icon changes.
+      watchIcon(tab, onChange) {
+        const read = () => JSON.stringify([tab.zenStaticIcon ?? tab.getAttribute("zen-icon") ?? null, tab.hasAttribute("zen-has-static-icon")]);
+        const before = read();
+        let ticks = 0;
+        const timer = setInterval(() => {
+          if (read() !== before) {
+            clearInterval(timer);
+            const value = tab.zenStaticIcon ?? tab.getAttribute("zen-icon") ?? (tab.hasAttribute("zen-has-static-icon") ? tab.getAttribute("image") : null);
+            console.log("[Zen Notes/Easel] tab icon changed:", value);
+            onChange(value || null);
+          } else if (++ticks > 300) clearInterval(timer);
+        }, 400);
+      },
+      // "😀" -> { emoji }, "chrome://…/book.svg" -> { src }
+      parseIcon(value) {
+        if (!value) return null;
+        const text = String(value).trim();
+        if (/^(?:chrome|resource|data|https?|moz-icon|page-icon):|\.svg(?:[?#].*)?$/i.test(text)) return { src: text };
+        return text ? { emoji: [...text].slice(0, 4).join("") } : null;
+      },
+    };
+  })();
   // Sidebar "+" menu, sidebar context menu and "+ New Tab" context menu arranger. Same snippet
   // lives in Zen Easel and Zen Notes; it is idempotent, so whichever mod runs last leaves the same order.
   const ZLMenus = (() => {
@@ -769,12 +849,83 @@ return module.exports; })();
       return globalThis.crypto?.randomUUID?.() || `note-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     }
 
-    _noteFooter(note) {
-      const footer = this._html("div"); footer.className = "zen-notes-footer";
-      if (!note?.quick && note?.createdAt && Number.isFinite(Date.parse(note.createdAt))) {
-        footer.textContent = "Created " + new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(note.createdAt));
+    // The bar along the top of a note, like the one on an easel: a switcher (notes, New / Rename / Delete) on the
+    // left and the note's creation date on the right. `interactive` is false for the static copies kept for other tabs.
+    _noteFooter(note, interactive = true) {
+      const bar = this._html("header"); bar.className = "zen-notes-footer zen-notes-topbar";
+      const left = this._html("div"); left.className = "zn-bar-left";
+      const switcher = this._html("button"); switcher.type = "button"; switcher.className = "zn-bar-switcher";
+      const name = this._html("span"); name.className = "zn-bar-title";
+      const chevron = this._html("span"); chevron.className = "zn-bar-chevron"; chevron.textContent = "▾";
+      switcher.append(name, chevron);
+      const list = this._html("div"); list.className = "zn-bar-list"; list.hidden = true;
+      left.append(switcher, list);
+      const right = this._html("div"); right.className = "zn-bar-right";
+      const created = this._html("span"); created.className = "zn-bar-created";
+      const closeButton = this._html("button"); closeButton.type = "button"; closeButton.className = "zn-bar-close"; closeButton.textContent = "✕"; closeButton.title = "Close";
+      right.append(created, closeButton);
+      bar.append(left, right);
+      this._updateTopbar(bar, note);
+      if (interactive) {
+        const outside = event => { if (!bar.contains(event.target)) dismiss(); };
+        const dismiss = () => { list.hidden = true; switcher.classList.remove("is-open"); document.removeEventListener("pointerdown", outside, true); };
+        switcher.addEventListener("click", () => {
+          if (!list.hidden) { dismiss(); return; }
+          this._fillTopbarList(list, dismiss);
+          list.hidden = false; switcher.classList.add("is-open");
+          document.addEventListener("pointerdown", outside, true);
+        });
+        closeButton.addEventListener("click", () => { dismiss(); const tab = gBrowser.selectedTab; if (tab) gBrowser.removeTab(tab); });
+      } else switcher.disabled = closeButton.disabled = true;
+      return bar;
+    }
+
+    _updateTopbar(bar, note) {
+      if (!bar) return;
+      const real = !!note && !note.quick;
+      bar.hidden = !real;
+      if (!real) return;
+      bar.dataset.noteId = note.id;
+      bar.querySelector(".zn-bar-title").textContent = note.title || "New Note";
+      const when = Number.isFinite(Date.parse(note.createdAt)) ? new Date(note.createdAt) : null;
+      bar.querySelector(".zn-bar-created").textContent = when ? "Created " + new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(when) : "";
+    }
+
+    _relativeTime(iso) {
+      const time = Date.parse(iso || ""); if (!Number.isFinite(time)) return "";
+      const minutes = Math.max(0, Math.round((Date.now() - time) / 60000));
+      if (minutes < 1) return "just now";
+      if (minutes < 60) return `${minutes}m ago`;
+      if (minutes < 1440) return `${Math.round(minutes / 60)}h ago`;
+      if (minutes < 43200) return `${Math.round(minutes / 1440)}d ago`;
+      return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(time));
+    }
+
+    _fillTopbarList(list, dismiss) {
+      const rows = [];
+      const button = (className, label, run, extra) => {
+        const node = this._html("button"); node.type = "button"; node.className = className;
+        const text = this._html("span"); text.className = "zn-bar-name"; text.textContent = label; node.append(text);
+        if (extra) { const when = this._html("span"); when.className = "zn-bar-when"; when.textContent = extra; node.append(when); }
+        node.addEventListener("click", () => { dismiss(); Promise.resolve(run()).catch(error => console.error(LOG, error)); });
+        return node;
+      };
+      const sorted = this.notes.filter(note => !note.quick).sort((a, b) => Date.parse(b.updatedAt || b.createdAt || "") - Date.parse(a.updatedAt || a.createdAt || ""));
+      for (const note of sorted) {
+        rows.push(button(`zn-bar-item${note.id === this.currentNoteId ? " is-current" : ""}`, note.title || "Untitled note", () => this._openLinkedNote(note.id), this._relativeTime(note.updatedAt || note.createdAt)));
       }
-      return footer;
+      const separator = this._html("div"); separator.className = "zn-bar-separator";
+      rows.push(separator,
+        button("zn-bar-action", "New note", () => this.createNote()),
+        button("zn-bar-action", "Rename this note", () => {
+          const heading = document.getElementById("zen-notes-page-title");
+          if (heading) { heading.focus(); window.getSelection()?.selectAllChildren(heading); }
+        }),
+        button("zn-bar-action is-danger", "Delete this note", async () => {
+          const id = this.currentNoteId; if (!id || !this._confirmDeleteNote(id)) return;
+          await this._deleteNote(id); this._showNotice("Note deleted");
+        }));
+      list.replaceChildren(...rows);
     }
 
     _registerLibraryProvider() {
@@ -925,7 +1076,7 @@ return module.exports; })();
     }
 
     _noteCardNode(note) {
-      const sig = `${note.id}|${note.title||""}|${note.updatedAt||""}`;
+      const sig = `${note.id}|${note.title||""}|${note.updatedAt||""}|${JSON.stringify(note.icon||null)}`;
       this._noteCards ||= new Map();
       const cached = this._noteCards.get(note.id);
       if (cached?.sig === sig) return cached.node;
@@ -938,8 +1089,13 @@ return module.exports; })();
       card.addEventListener("contextmenu", event => { event.preventDefault(); event.stopPropagation(); this._notesLibraryMenu(event, note.id, card); });
       const frame = this._html("div"); frame.className = "zn-note-frame";
       const body = this._html("div"); body.className = "zn-note-body";
-      const icon = document.createElementNS(svgNS, "svg"); icon.setAttribute("class","zn-note-icon"); icon.setAttribute("viewBox","0 0 32 32"); icon.setAttribute("aria-hidden","true");
-      const path = document.createElementNS(svgNS, "path"); path.setAttribute("d","M18 4H8a2 2 0 0 0-2 2v22h20V12z M18 4v8h8 M11 17h10 M11 22h7"); icon.append(path);
+      let icon;
+      if (note.icon?.emoji) { icon = this._html("span"); icon.className = "zn-note-icon zn-note-emoji"; icon.textContent = note.icon.emoji; }
+      else if (note.icon?.src) { icon = this._html("span"); icon.className = "zn-note-icon zn-note-mask"; icon.style.setProperty("--zn-icon", `url("${note.icon.src.replace(/"/g, "%22")}")`); }
+      else {
+        icon = document.createElementNS(svgNS, "svg"); icon.setAttribute("class","zn-note-icon"); icon.setAttribute("viewBox","0 0 32 32"); icon.setAttribute("aria-hidden","true");
+        const path = document.createElementNS(svgNS, "path"); path.setAttribute("d","M18 4H8a2 2 0 0 0-2 2v22h20V12z M18 4v8h8 M11 17h10 M11 22h7"); icon.append(path);
+      }
       const count = this._html("div"); count.className = "zn-note-count";
       const title = this._html("strong"); title.textContent = note.title || "Untitled note";
       const preview = this._html("div"); preview.className = "zn-library-note-preview"; preview.textContent = "…";
@@ -1022,7 +1178,7 @@ return module.exports; })();
         quoteBlock = null;
         // Inline text with <br> (not a div per line): the hand-made cut below stays simple.
         const heading = raw.match(/^#{1,6}\s+(.*)/), bullet = raw.match(/^\s*[-*+]\s+(.*)/);
-        const html = colour(this._inline(heading ? heading[1] : bullet ? "• " + bullet[1] : raw));
+        const html = colour(this._inline(heading ? heading[1] : bullet ? "•\u00a0" + bullet[1] : raw));
         if (html) {
           const line = this._html("span"); line.innerHTML = html;
           if (heading) line.className = "zn-library-preview-heading";
@@ -1629,7 +1785,7 @@ return module.exports; })();
           try { await this._writeIndex(); } catch (error) { this.notes = this.notes.filter(item => item.id !== id); throw error; }
         });
         this._quickNotes.delete(id); note.tab.removeAttribute("zen-notes-quick"); this._markTab(note.tab, saved);
-        if (this.currentNoteId === id) document.querySelector("#zen-notes-page .zen-notes-footer")?.replaceWith(this._noteFooter(saved));
+        if (this.currentNoteId === id) this._updateTopbar(document.querySelector("#zen-notes-page .zen-notes-topbar"), saved);
         this._showAddedToast(id, "Saved").catch(console.error);
       })();
       try { await note.promoting; } finally { note.promoting = null; }
@@ -2234,6 +2390,31 @@ return module.exports; })();
     // Same glyph as the "+" menu; Zen colors it for the current theme like any other chrome icon.
     _filledNoteIcon() { return MENU_NOTE_ICON; }
 
+    // Re-reads the note from its file (so edits made in another app show up) and redraws it.
+    async _reloadNote(id) {
+      await this._saveCurrentNow(); await this._loadIndex();
+      if (!this._getNote(id)) return;
+      this.currentNoteId = null;
+      await this._showNote(id);
+    }
+
+    // The icon picked with Zen's "Change Icon…" also becomes the note's icon in the library.
+    async _setNoteIcon(id, value) {
+      const icon = ZLTabMenu.parseIcon(value);
+      await this._enqueueWrite(async () => {
+        for (const win of Services.wm.getEnumerator("navigator:browser")) {
+          const note = win.gZenNotes?._getNote(id); if (!note) continue;
+          if (icon) note.icon = icon; else delete note.icon;
+        }
+        await this._writeIndex();
+      });
+      for (const win of Services.wm.getEnumerator("navigator:browser")) {
+        const controller = win.gZenNotes; if (!controller) continue;
+        controller._notesLibrarySignature = null; controller._refreshNotesLibrary?.();
+        win.ZenEaselLibrarySection?._reloadOpen?.();
+      }
+    }
+
     _markTab(tab, note) {
       if (!tab || !note) return;
       if (this._nativeRename?.tab === tab || globalThis.gZenVerticalTabsManager?._tabEdited === tab) return;
@@ -2244,8 +2425,7 @@ return module.exports; })();
       const label = `${note.title || "New Note"} — Note`;
       if (tab.zenStaticLabel !== label) tab.zenStaticLabel = label;
       set("label",label); if (tab.label !== label) tab.label = label;
-      set("image",this._filledNoteIcon());
-      this._tintTabIcon(tab);
+      if (!note.icon) { set("image",this._filledNoteIcon()); this._tintTabIcon(tab); } // a chosen icon is left to Zen
       try { if (!note.quick) SessionStoreAPI?.setCustomTabValue?.(tab, "zen-notes-id", note.id); } catch {}
     }
 
@@ -2410,7 +2590,7 @@ return module.exports; })();
           }
           this._renderAllLines(body);
         } finally { this.currentNoteId = previous; }
-        scroll.append(canvas); preview.append(scroll, this._noteFooter(note)); this._applyBoost(preview, id);
+        scroll.append(canvas); preview.append(scroll, this._noteFooter(note, false)); this._applyBoost(preview, id);
         preview.addEventListener("pointerdown", event => { event.preventDefault(); this._openLinkedNote(id); this._syncSelectedTab().catch(console.error); });
         host.classList.add("zen-notes-page-host"); host.setAttribute("zen-notes-active", "true"); host.append(preview);
       }
@@ -2579,6 +2759,9 @@ return module.exports; })();
       canvas.append(title, editor);
       scroll.append(canvas);
       page.append(scroll, this._noteFooter(null));
+      // The bar's name follows the heading, whoever changes it (typing, the sidebar field, the library tile).
+      new MutationObserver(() => { const label = page.querySelector(".zn-bar-title"); if (label) label.textContent = title.textContent.trim() || "New Note"; })
+        .observe(title, { childList: true, characterData: true, subtree: true });
       host.append(page);
       return true;
     }
@@ -2613,7 +2796,7 @@ return module.exports; })();
       const data = await this._readNote(note);
       if (this._destroyed || this._idFromTab(gBrowser.selectedTab) !== id || !this._getNote(id)) return;
       this.currentNoteId = id;
-      page.querySelector(".zen-notes-footer")?.replaceWith(this._noteFooter(note));
+      this._updateTopbar(page.querySelector(".zen-notes-topbar"), note);
       this._loadingPage = true;
       this._activeLine = null;
       title.textContent = data.title || "New Note";
@@ -5437,30 +5620,29 @@ function run(argv) {
         const tab = globalThis.TabContextMenu?.contextTab;
         const id = this._idFromTab(tab);
         const added = [], states = [];
+        let arranged = null;
         const append = item => { added.push(item); popup.append(item); };
         if (id && this._getNote(id)) {
-          const keep = new Set(["context_moveTabToGroup", "context_moveTabToSplitView", "context_separateSplitView", "context_reverseSplitView"]);
-          for (const child of popup.children) {
-            states.push([child, child.hidden]);
-            // Zen's split-view rows ("Split Out Tab", "Share Split View…") only show on split tabs; leave them as Zen has them.
-            const splitRow = !child.hidden && /split/i.test(`${child.id || ""} ${child.getAttribute?.("label") || ""}`);
-            if (!keep.has(child.id) && !splitRow) child.hidden = true;
-          }
+          // Zen's own rows are found before the menu is trimmed; running them keeps their behaviour.
           const nativeUnload = [...popup.querySelectorAll("menuitem")].find(node =>
             /unload tab/i.test(node.getAttribute("label") || node.label || "") || /unload/i.test(node.id || ""));
-          // Zen's own "Change label…" row, found before the menu is trimmed; the existing Enter/blur hooks save the new title.
+          // Zen's own "Change label…" row; the existing Enter/blur hooks save the new title.
           const nativeRename = [...popup.querySelectorAll("menuitem")].find(node =>
             /change label|edit label|rename/i.test(node.getAttribute("label") || node.label || "")
             || /edit-tab|rename-tab|change-label|edit-label/i.test(node.id || ""));
-          append(this._menuItem("Change Label…", () => nativeRename ? nativeRename.doCommand() : this._startNativeRename(tab)));
-          append(this._menuItem("Duplicate Note", () => this._duplicateNote(id)));
-          append(document.createXULElement("menuseparator"));
-          append(this._menuItem(tab.pinned ? "Unpin Note" : "Pin Note", () => tab.pinned ? gBrowser.unpinTab(tab) : gBrowser.pinTab(tab)));
-          append(this._menuItem("Unload Note", () => nativeUnload ? nativeUnload.doCommand() : gBrowser.explicitUnloadTabs?.([tab])));
-          append(document.createXULElement("menuseparator"));
-          append(this._menuItem("Export Note…", () => this._exportNote(id)));
-          append(document.createXULElement("menuseparator"));
-          append(this._menuItem("Delete Note", async () => { if (!this._confirmDeleteNote(id)) return; await this._deleteNote(id); this._showNotice("Note deleted"); }));
+          arranged = ZLTabMenu.arrange(popup, found => [
+            "folder", "splits", "sep",
+            this._menuItem("Reload Note", () => this._reloadNote(id)), "essentials", "sep",
+            this._menuItem("Change Label…", () => nativeRename ? nativeRename.doCommand() : this._startNativeRename(tab)),
+            found.icon ? this._menuItem("Change Icon…", () => { found.icon.doCommand(); ZLTabMenu.watchIcon(tab, value => this._setNoteIcon(id, value)); }) : null,
+            "sep", "pin",
+            this._menuItem("Unload Note", () => nativeUnload ? nativeUnload.doCommand() : gBrowser.explicitUnloadTabs?.([tab])),
+            this._menuItem("Duplicate Note", () => this._duplicateNote(id)),
+            "sep", this._menuItem("Export Note…", () => this._exportNote(id)),
+            "sep", "moveTab", "container", "selectAll",
+            "sep", "close", "closeMultiple", "reopen",
+            "sep", this._menuItem("Delete Note", async () => { if (!this._confirmDeleteNote(id)) return; await this._deleteNote(id); this._showNotice("Note deleted"); }),
+          ]);
         } else {
           const url = tab?.linkedBrowser?.currentURI?.spec;
           if (/^https?:\/\//i.test(url || "")) {
@@ -5476,7 +5658,7 @@ function run(argv) {
             popup.insertBefore(menu, moveToFolder?.nextSibling || popup.firstChild);
           }
         }
-        const restore = () => { for (const [node, hidden] of states) node.hidden = hidden; for (const node of added) node.remove(); this._restoreTabMenu = null; };
+        const restore = () => { arranged?.(); for (const [node, hidden] of states) node.hidden = hidden; for (const node of added) node.remove(); this._restoreTabMenu = null; };
         this._restoreTabMenu = restore;
         const hidden = event => { if (event.target !== popup) return; popup.removeEventListener("popuphidden", hidden); restore(); };
         popup.addEventListener("popuphidden", hidden);
