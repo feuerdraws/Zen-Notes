@@ -965,10 +965,15 @@ return module.exports; })();
       if (!excerpt.trim()) { preview.hidden = true; return; }
       preview.hidden = false;
       for (const raw of excerpt.split("\n").slice(0,24)) {
-        const line = this._html("div"), heading = raw.match(/^#{1,6}\s+(.*)/), bullet = raw.match(/^\s*[-*+]\s+(.*)/);
-        line.innerHTML = this._inline(heading ? heading[1] : bullet ? "• " + bullet[1] : raw) || "<br/>";
-        if (heading) line.className = "zn-library-preview-heading";
-        preview.append(line);
+        // Inline text with <br> (not a div per line): line-clamp then puts a single "…" on the last visible line.
+        const heading = raw.match(/^#{1,6}\s+(.*)/), bullet = raw.match(/^\s*[-*+]\s+(.*)/);
+        const html = this._inline(heading ? heading[1] : bullet ? "• " + bullet[1] : raw);
+        if (html) {
+          const line = this._html("span"); line.innerHTML = html;
+          if (heading) line.className = "zn-library-preview-heading";
+          preview.append(line);
+        }
+        preview.append(this._html("br"));
       }
       this._clampPreview(preview);
     }
