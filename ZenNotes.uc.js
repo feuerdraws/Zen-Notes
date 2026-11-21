@@ -353,6 +353,7 @@ return module.exports; })();
         await this._loadIndex();
         await this._migrateFileNames().catch(error => console.error(LOG, "File name migration failed", error));
         await this._adoptVaultFiles().catch(error => console.error(LOG, "Could not scan the notes folder", error));
+        if (this._adoptLeader() === this) await this._removeCollisionCopies().catch(error => console.error(LOG, "Duplicate clean-up failed", error));
         // Files added or renamed by another app (an Obsidian vault, say) are picked up when Zen is focused again.
         let lastScan = Date.now();
         window.addEventListener("focus", () => {
@@ -591,7 +592,7 @@ return module.exports; })();
       await this._loadIndex();
       let skipped = 0;
       for (const note of this.notes) {
-        if (note.syncTestCopy) continue;
+        if (note.syncTestCopy || note.adopted) continue; // notes found in the folder already live there; the folder is their sync
         const data = await this._readNote(note);
         const value = { schema: 1, noteId: note.id, title: data.title, body: data.body, updatedAt: note.updatedAt || note.createdAt };
         if (!Number.isFinite(Date.parse(value.updatedAt))) value.updatedAt = new Date().toISOString();
@@ -641,6 +642,13 @@ return module.exports; })();
             await this._writeNoteFile(copyID, title, value.body, copy);
             this.notes.push(copy);
           } else {
+            // Already here under another id (same title and text): nothing to restore.
+            let twin = false;
+            for (const other of this.notes) {
+              if (other.quick || other.title !== value.title) continue;
+              if ((await this._readNote(other)).body === value.body) { twin = true; break; }
+            }
+            if (twin) continue;
             const added = { id: value.noteId, title: value.title, createdAt: value.updatedAt, updatedAt: value.updatedAt };
             await this._writeNoteFile(value.noteId, value.title, value.body, added);
             this.notes.push(added);
@@ -700,7 +708,14 @@ return module.exports; })();
       }
       try {
         const parsed = JSON.parse(await FileIO.readUTF8(this.indexPath));
-        this.notes = Array.isArray(parsed?.notes) ? parsed.notes : [];
+        const seenFiles = new Set();
+        // Two entries must never share one file; the first keeps it.
+        this.notes = (Array.isArray(parsed?.notes) ? parsed.notes : []).filter(note => {
+          if (note.quick || !note.file) return true;
+          const key = note.file.toLowerCase();
+          if (seenFiles.has(key)) return false;
+          seenFiles.add(key); return true;
+        });
         await this._filterDeletedNotes();
       } catch (error) {
         console.error(LOG, "Could not read index", error);
@@ -1977,7 +1992,41 @@ return module.exports; })();
     // One-off: gives notes saved as "<id>.md" a readable title-based name.
     // Markdown files that are in the notes folder but not in Zen's index (a vault's existing notes) become notes.
     // Only the top level of the folder is read; the file name is the title and the text is left untouched.
+    // One-off clean-up of exact copies named "Name (2).md" that an earlier build produced next to "Name.md".
+    // Only a note whose text is identical to the one it was copied from is offered for removal, and only after asking.
+    async _removeCollisionCopies() {
+      const flag = "zen-notes.cleanup.collisions-v1";
+      if (Services.prefs.getBoolPref(flag, false)) return;
+      await this._loadIndex();
+      const byFile = new Map(this.notes.filter(note => !note.quick).map(note => [(note.file || `${note.id}.md`).toLowerCase(), note]));
+      const doomed = [];
+      for (const note of this.notes) {
+        if (note.quick || !note.file) continue;
+        const match = note.file.match(/^(.*?)(?: \(\d+\))+\.md$/i);
+        if (!match) continue;
+        const original = byFile.get(`${match[1]}.md`.toLowerCase());
+        if (!original || original.id === note.id) continue;
+        const [mine, theirs] = [await this._readNote(note), await this._readNote(original)];
+        if (mine.body.trim() === theirs.body.trim()) doomed.push(note);
+      }
+      Services.prefs.setBoolPref(flag, true);
+      if (!doomed.length) return;
+      const ok = Services.prompt.confirm(window, "Zen Notes",
+        `${doomed.length} notes are exact copies of another note and are named like "Name (2)" (a bug in an earlier version created them).\n\nDelete these copies and keep the originals?`);
+      if (!ok) return;
+      for (const note of doomed) await this._deleteNote(note.id);
+      this._notesLibrarySignature = null; this._refreshNotesLibrary();
+    }
+
+    // Only the oldest window scans the folder, so two windows can never add the same file twice.
+    _adoptLeader() {
+      for (const win of Services.wm.getEnumerator("navigator:browser")) if (!win.closed && win.gZenNotes) return win.gZenNotes;
+      return this;
+    }
+
     async _adoptVaultFiles() {
+      const leader = this._adoptLeader();
+      if (leader !== this) return leader._adoptVaultFiles();
       if (this._adopting) return;
       this._adopting = true;
       try {
@@ -2001,7 +2050,7 @@ return module.exports; })();
               if (!relative && await FileIO.exists(this._deletedPath(stem))) continue; // a deleted note's leftover
               const modified = new Date(info.lastModified || Date.now()).toISOString();
               const created = new Date(info.creationTime || info.lastModified || Date.now()).toISOString();
-              this.notes.push({ id: this._makeId(), title: stem, file, plain: true, createdAt: created, updatedAt: modified });
+              this.notes.push({ id: this._makeId(), title: stem, file, plain: true, adopted: true, createdAt: created, updatedAt: modified });
               known.add(file.toLowerCase()); added++;
             }
           };
