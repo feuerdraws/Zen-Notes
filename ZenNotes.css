@@ -939,10 +939,13 @@ zen-library .zn-library-note-boost .zen-library-row-subtitle::after { content:"n
 .zn-library-note-card .zn-note-count { position: absolute; top: 7px; right: 8px; font: 500 10px/1 system-ui; opacity: .5; }
 .zn-library-note-card .zn-library-note-preview[hidden] { display: none; }
 .zn-library-note-card .zn-library-preview-heading { font-weight: 650; font-size: 11px; }
+/* Same look as the editor's block quote: a filled, rounded block (blue-grey in light, deep blue in dark). */
 .zn-library-note-card .zn-library-preview-quote {
-  border-left: 2px solid color-mix(in srgb, currentColor 45%, transparent); padding-left: 5px; opacity: .85;
-  -webkit-box-decoration-break: clone; box-decoration-break: clone;
+  display: block; margin: 2px 0; padding: 3px 7px; border-radius: 6px; background: #e5f1fc; color: #1f2933;
 }
+html[data-zl-scheme="dark"] .zn-library-note-card .zn-library-preview-quote { background: #243849; color: inherit; }
+.zn-library-note-card .zn-library-note-preview mark { color: inherit; background: color-mix(in srgb, #ffd95a 42%, transparent); border-radius: .17em; padding: 0 .07em; }
+.zn-library-note-card .zn-library-note-preview span[style*="background-color"] { border-radius: .17em; padding: 0 .07em; }
 /* Subfolder heading: name on the left, a line after it (like the pinned-tabs separator). Same rule lives in Zen Easel. */
 .zl-folder-head { display: flex; align-items: center; gap: 8px; margin: 16px 6px 8px; font: 600 11px system-ui; color: color-mix(in srgb, currentColor 60%, transparent); }
 .zl-folder-head span { flex: none; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -971,7 +974,7 @@ zen-library .zn-library-note-boost .zen-library-row-subtitle::after { content:"n
   margin: 0; padding: 0; border: 0; border-radius: var(--border-radius-medium, 8px); cursor: pointer; background: transparent;
   color: var(--toolbarbutton-icon-fill, var(--toolbar-color, inherit));
 }
-.zn-library-storage-btn:hover { background: color-mix(in srgb, white 18%, transparent); }
+.zn-library-storage-btn:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
 .zn-library-storage-btn svg { width: 16px; height: 16px; opacity: .8; fill: currentColor; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; }
 .zn-library-storage-btn:hover svg { opacity: 1; }
 .zn-library-notes-grid, zen-library-easels-section .easel-card-grid { padding-bottom: 52px !important; }

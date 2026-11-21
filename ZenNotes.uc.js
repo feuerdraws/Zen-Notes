@@ -994,17 +994,38 @@ return module.exports; })();
       if (source) { const img = this._html("img"); img.src = source; img.alt = ""; preview.replaceChildren(img); preview.hidden = false; return; }
       preview.replaceChildren();
       for (const prop of ["display", "flex", "-webkit-box-orient", "-webkit-line-clamp", "line-clamp"]) preview.style.removeProperty(prop);
-      const excerpt = body.slice(0,4096).replace(/!\[([^\]]*)\]\([^)]*\)/g,"$1").replace(/<[^>]*>/g,"").replace(/data:[^\s)]*/g,"").slice(0,1400);
+      // Colour spans (<span style="color:#…">) are kept; every other tag is dropped. They are parked as numbered
+      // tokens while the line is rendered and put back as real spans afterwards.
+      const styles = [];
+      const excerpt = body.slice(0,4096).replace(/!\[([^\]]*)\]\([^)]*\)/g,"$1")
+        .replace(/<span style="([^"]+)">/gi, (whole, style) => this._safeColorStyle(style) ? `\uE005${styles.push(style) - 1}\uE006` : "")
+        .replace(/<\/span>/gi, "\uE007").replace(/<[^>]*>/g,"").replace(/data:[^\s)]*/g,"").slice(0,1400);
       if (!excerpt.trim()) { preview.hidden = true; return; }
       preview.hidden = false;
+      const colour = html => {
+        let depth = 0;
+        html = html.replace(/\uE005(\d+)\uE006/g, (_, index) => { depth++; return `<span style="${styles[Number(index)]}">`; })
+          .replace(/\uE007/g, () => depth > 0 ? (depth--, "</span>") : "");
+        return html + "</span>".repeat(depth);
+      };
+      // Consecutive "> " lines share one rounded block, like the editor's block quotes.
+      let quoteBlock = null;
       for (const raw of excerpt.split("\n").slice(0,24)) {
-        // Inline text with <br> (not a div per line): line-clamp then puts a single "…" on the last visible line.
-        const heading = raw.match(/^#{1,6}\s+(.*)/), bullet = raw.match(/^\s*[-*+]\s+(.*)/), quote = raw.match(/^\s*(?:>\s?)+(.*)$/);
-        const html = this._inline(quote ? quote[1] : heading ? heading[1] : bullet ? "• " + bullet[1] : raw);
+        const quote = raw.match(/^\s*(?:>\s?)+(.*)$/);
+        if (quote) {
+          if (!quoteBlock) { quoteBlock = this._html("div"); quoteBlock.className = "zn-library-preview-quote"; preview.append(quoteBlock); }
+          else quoteBlock.append(this._html("br"));
+          const html = colour(this._inline(quote[1]));
+          if (html) { const line = this._html("span"); line.innerHTML = html; quoteBlock.append(line); }
+          continue;
+        }
+        quoteBlock = null;
+        // Inline text with <br> (not a div per line): the hand-made cut below stays simple.
+        const heading = raw.match(/^#{1,6}\s+(.*)/), bullet = raw.match(/^\s*[-*+]\s+(.*)/);
+        const html = colour(this._inline(heading ? heading[1] : bullet ? "• " + bullet[1] : raw));
         if (html) {
           const line = this._html("span"); line.innerHTML = html;
           if (heading) line.className = "zn-library-preview-heading";
-          else if (quote) line.className = "zn-library-preview-quote";
           preview.append(line);
         }
         preview.append(this._html("br"));
@@ -1035,8 +1056,13 @@ return module.exports; })();
           const scan = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT);
           for (let text; (text = scan.nextNode());) {
             plain += text.nodeValue;
-            let up = text; while (up !== preview && !up.nextSibling) up = up.parentNode;
-            if (up.nextSibling?.nodeName === "BR") breaks.add(plain.length);
+            let node = text, edge = false; // a line or a quote block ends here
+            while (node !== preview) {
+              if (node.nextSibling) { edge = edge || ["BR", "DIV"].includes(node.nextSibling.nodeName); break; }
+              node = node.parentNode;
+              if (node !== preview && node.nodeName === "DIV") edge = true;
+            }
+            if (edge) breaks.add(plain.length);
           }
           const snap = keep => {
             if (keep <= 0 || keep >= plain.length || breaks.has(keep) || /\s/.test(plain[keep]) || /\s/.test(plain[keep - 1])) return keep;
