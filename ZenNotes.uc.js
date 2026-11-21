@@ -983,12 +983,6 @@ return module.exports; })();
     _clampPreview(preview) {
       while (preview.lastChild && (preview.lastChild.nodeName === "BR" || (preview.lastChild.nodeType === 3 && !preview.lastChild.nodeValue.trim()))) preview.lastChild.remove();
       preview._znHtml = preview.innerHTML;
-      const lastText = () => {
-        const walker = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT);
-        let node, last = null;
-        while ((node = walker.nextNode())) if (node.nodeValue.trim()) last = node;
-        return last;
-      };
       const fit = () => {
         const frame = preview.offsetParent;
         if (!preview.isConnected || preview.hidden || !frame || !frame.clientHeight) return false;
@@ -1000,24 +994,25 @@ return module.exports; })();
         preview.style.flex = "none"; preview.style.overflow = "visible";
         try {
           if (preview.scrollHeight <= room + 1) return true;
-          const lineHeight = parseFloat(getComputedStyle(preview).lineHeight) || 13.5;
-          const rect = preview.getBoundingClientRect();
-          const pos = document.caretPositionFromPoint?.(rect.right - 2, rect.top + room - lineHeight * 0.6);
-          if (pos && preview.contains(pos.offsetNode)) {
-            const range = document.createRange();
-            range.setStart(pos.offsetNode, pos.offset); range.setEnd(preview, preview.childNodes.length);
-            range.deleteContents();
+          // Keep the first k characters plus "…"; the largest k that still fits is found by bisection.
+          const cut = keep => {
+            preview.innerHTML = preview._znHtml;
+            const walker = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT);
+            let node, left = keep;
+            while ((node = walker.nextNode())) {
+              if (left > node.nodeValue.length) { left -= node.nodeValue.length; continue; }
+              node.nodeValue = node.nodeValue.slice(0, left).replace(/\s+$/, "") + "…";
+              const after = document.createRange(); after.setStartAfter(node); after.setEnd(preview, preview.childNodes.length); after.deleteContents();
+              return;
+            }
+          };
+          let low = 0, high = (preview.textContent || "").length;
+          while (low < high) {
+            const mid = Math.ceil((low + high) / 2);
+            cut(mid);
+            if (preview.scrollHeight <= room + 1) low = mid; else high = mid - 1;
           }
-          let text = lastText();
-          if (!text) return true;
-          const after = document.createRange(); after.setStartAfter(text); after.setEnd(preview, preview.childNodes.length); after.deleteContents();
-          text.nodeValue = text.nodeValue.replace(/\s+$/, "") + "…";
-          for (let guard = 0; guard < 600 && preview.scrollHeight > room + 1; guard++) {
-            const kept = text.nodeValue.slice(0, -1).replace(/\s+$/, "");
-            if (kept.length > 1) { text.nodeValue = kept.slice(0, -1).replace(/\s+$/, "") + "…"; continue; }
-            text.remove(); text = lastText(); if (!text) break;
-            text.nodeValue = text.nodeValue.replace(/\s+$/, "") + "…";
-          }
+          cut(Math.max(1, low));
           return true;
         } finally { preview.style.removeProperty("flex"); preview.style.removeProperty("overflow"); }
       };
