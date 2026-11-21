@@ -978,25 +978,48 @@ return module.exports; })();
       this._clampPreview(preview);
     }
 
-    // Text that doesn't fit the card ends in "…" instead of being cut mid-line.
+    // Text that doesn't fit the card ends in a single "…". The cut is made by hand (not with CSS line-clamp, which
+    // drew a second "…" here): find where the last line that fits ends, drop the rest, add the ellipsis.
     _clampPreview(preview) {
+      while (preview.lastChild && (preview.lastChild.nodeName === "BR" || (preview.lastChild.nodeType === 3 && !preview.lastChild.nodeValue.trim()))) preview.lastChild.remove();
+      preview._znHtml = preview.innerHTML;
+      const lastText = () => {
+        const walker = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT);
+        let node, last = null;
+        while ((node = walker.nextNode())) if (node.nodeValue.trim()) last = node;
+        return last;
+      };
       const fit = () => {
         const frame = preview.offsetParent;
         if (!preview.isConnected || preview.hidden || !frame || !frame.clientHeight) return false;
-        // The room is measured from the card, not from the preview itself, so clamping can't feed back into it.
+        // The room is measured from the card, not from the preview itself.
         const padBottom = parseFloat(getComputedStyle(frame).paddingBottom) || 0;
         const room = frame.clientHeight - preview.offsetTop - padBottom;
         if (room < 8) return false;
-        for (const prop of ["display", "flex", "-webkit-box-orient", "-webkit-line-clamp", "line-clamp"]) preview.style.removeProperty(prop);
-        if (preview.scrollHeight <= room + 1) return true;
-        const lineHeight = parseFloat(getComputedStyle(preview).lineHeight) || 13.5;
-        // scrollHeight still counts the lines a clamp hides, so the clamped box's own height is what is compared.
-        preview.style.display = "-webkit-box"; preview.style.setProperty("-webkit-box-orient", "vertical"); preview.style.flex = "none";
-        for (let lines = Math.max(1, Math.floor(room / lineHeight)); lines >= 1; lines--) {
-          preview.style.setProperty("-webkit-line-clamp", String(lines)); preview.style.setProperty("line-clamp", String(lines));
-          if (preview.offsetHeight <= room + 1) break;
-        }
-        return true;
+        preview.innerHTML = preview._znHtml; // always cut from the full text
+        preview.style.flex = "none"; preview.style.overflow = "visible";
+        try {
+          if (preview.scrollHeight <= room + 1) return true;
+          const lineHeight = parseFloat(getComputedStyle(preview).lineHeight) || 13.5;
+          const rect = preview.getBoundingClientRect();
+          const pos = document.caretPositionFromPoint?.(rect.right - 2, rect.top + room - lineHeight * 0.6);
+          if (pos && preview.contains(pos.offsetNode)) {
+            const range = document.createRange();
+            range.setStart(pos.offsetNode, pos.offset); range.setEnd(preview, preview.childNodes.length);
+            range.deleteContents();
+          }
+          let text = lastText();
+          if (!text) return true;
+          const after = document.createRange(); after.setStartAfter(text); after.setEnd(preview, preview.childNodes.length); after.deleteContents();
+          text.nodeValue = text.nodeValue.replace(/\s+$/, "") + "…";
+          for (let guard = 0; guard < 600 && preview.scrollHeight > room + 1; guard++) {
+            const kept = text.nodeValue.slice(0, -1).replace(/\s+$/, "");
+            if (kept.length > 1) { text.nodeValue = kept.slice(0, -1).replace(/\s+$/, "") + "…"; continue; }
+            text.remove(); text = lastText(); if (!text) break;
+            text.nodeValue = text.nodeValue.replace(/\s+$/, "") + "…";
+          }
+          return true;
+        } finally { preview.style.removeProperty("flex"); preview.style.removeProperty("overflow"); }
       };
       if (fit()) return;
       // Not laid out yet: try again as soon as the card has a size, once it settles.
