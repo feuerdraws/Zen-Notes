@@ -185,7 +185,7 @@ The compatibility engine name remains `zennotestest`; changing that identifier w
 
 Notes live in the active Zen profile's `zen-notes` directory:
 
-- `<title>.md` — Markdown content only; the title is the file name.
+- `<title>.md` — Markdown content only; the title is the file name. Markdown files already in the folder (including subfolders, except those starting with a period) appear as notes; each subfolder gets its own heading in the library.
 - `.index.json` — note metadata.
 - `.deleted/` — local deletion markers.
 - `.sync-test-v1/` — Sync engine working data.

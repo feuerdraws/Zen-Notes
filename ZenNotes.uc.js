@@ -767,7 +767,7 @@ return module.exports; })();
       this._libraryProvider = {
         id: "notes", label: "Notes", newLabel: "Note",
         items: query => this._libraryNotes(query).map(note => ({
-          key: "note:" + note.id, title: note.title || "", updatedAt: Date.parse(note.updatedAt || note.createdAt || "") || 0,
+          key: "note:" + note.id, title: note.title || "", folder: this._folderOf(note), updatedAt: Date.parse(note.updatedAt || note.createdAt || "") || 0,
           node: this._noteCardNode(note)
         })),
         create: () => this.createNote(),
@@ -861,12 +861,13 @@ return module.exports; })();
       const search=this._html("input"); search.type="search"; search.placeholder="Search Notes…"; search.setAttribute("aria-label","Search notes by title");
       const status=this._html("p"); status.className="zn-library-notes-status"; status.setAttribute("role","status");status.hidden=true;
       const grid=this._html("div"); grid.className="zen-library-media-grid zn-library-notes-grid";
-      const results=this._html("div");results.className="zen-library-search-results";results.append(status,grid,this._storageButton()); setTimeout(() => this._placeStorageButton(), 60);
+      const folders=this._html("div"); folders.className="zn-library-folders";
+      const results=this._html("div");results.className="zen-library-search-results";results.append(status,grid,folders,this._storageButton()); setTimeout(() => this._placeStorageButton(), 60);
       box.append(glass,search);row.append(box);header.append(row);root.append(header,results);
       root.addEventListener("keydown",event=>event.stopPropagation());
       search.addEventListener("input",()=>this._refreshNotesLibrary());
       root.onShown=()=>this._refreshNotesLibrary();
-      this._notesLibraryRoot=root;this._notesLibrarySearch=search;this._notesLibraryGrid=grid;this._notesLibraryStatus=status;
+      this._notesLibraryRoot=root;this._notesLibrarySearch=search;this._notesLibraryGrid=grid;this._notesLibraryFolders=folders;this._notesLibraryStatus=status;
       this._refreshNotesLibrary(); return root;
     }
 
@@ -889,13 +890,23 @@ return module.exports; })();
       if (!this._notesLibraryGrid) return;
       const query = this._notesLibrarySearch.value.trim().toLocaleLowerCase();
       const notes = this._libraryNotes(query);
-      const signature = JSON.stringify(notes.map(note=>[note.id,note.title,note.updatedAt]));
+      const signature = JSON.stringify(notes.map(note=>[note.id,note.title,note.updatedAt,note.file]));
       if (signature === this._notesLibrarySignature) return;
       this._notesLibrarySignature = signature;
       this._notesLibraryStatus.hidden = notes.length > 0;
       this._notesLibraryStatus.textContent = notes.length ? "" : query ? "No matching notes" : "No notes yet.";
-      const cards = notes.map((note, i) => { const card = this._noteCardNode(note); const c = card.querySelector(".zn-note-count"); if (c) c.textContent = String(notes.length - i); return card; });
-      this._notesLibraryGrid.replaceChildren(this._newNoteCard(), ...cards);
+      // Main folder first; each subfolder follows in alphabetical order with its own title, line and numbering.
+      const groups = new Map();
+      for (const note of notes) { const folder = this._folderOf(note); if (!groups.has(folder)) groups.set(folder, []); groups.get(folder).push(note); }
+      const cardsFor = list => list.map((note, i) => { const card = this._noteCardNode(note); const c = card.querySelector(".zn-note-count"); if (c) c.textContent = String(list.length - i); return card; });
+      this._notesLibraryGrid.replaceChildren(this._newNoteCard(), ...cardsFor(groups.get("") || []));
+      const blocks = [];
+      for (const [folder, list] of [...groups].filter(([name]) => name).sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base", numeric: true }))) {
+        const head = this._html("div"); head.className = "zl-folder-head"; const label = this._html("span"); label.textContent = folder; head.append(label);
+        const grid = this._html("div"); grid.className = "zen-library-media-grid zn-library-notes-grid"; grid.append(...cardsFor(list));
+        blocks.push(head, grid);
+      }
+      this._notesLibraryFolders?.replaceChildren(...blocks);
     }
 
     _noteCardNode(note) {
@@ -973,11 +984,12 @@ return module.exports; })();
       preview.hidden = false;
       for (const raw of excerpt.split("\n").slice(0,24)) {
         // Inline text with <br> (not a div per line): line-clamp then puts a single "…" on the last visible line.
-        const heading = raw.match(/^#{1,6}\s+(.*)/), bullet = raw.match(/^\s*[-*+]\s+(.*)/);
-        const html = this._inline(heading ? heading[1] : bullet ? "• " + bullet[1] : raw);
+        const heading = raw.match(/^#{1,6}\s+(.*)/), bullet = raw.match(/^\s*[-*+]\s+(.*)/), quote = raw.match(/^\s*(?:>\s?)+(.*)$/);
+        const html = this._inline(quote ? quote[1] : heading ? heading[1] : bullet ? "• " + bullet[1] : raw);
         if (html) {
           const line = this._html("span"); line.innerHTML = html;
           if (heading) line.className = "zn-library-preview-heading";
+          else if (quote) line.className = "zn-library-preview-quote";
           preview.append(line);
         }
         preview.append(this._html("br"));
@@ -1002,7 +1014,22 @@ return module.exports; })();
         try {
           if (preview.scrollHeight <= room + 1) return true;
           // Keep the first k characters plus "…"; the largest k that still fits is found by bisection.
-          const cut = keep => {
+          // The cut falls between words: a position inside a word moves back to the end of the word before it.
+          let plain = "";
+          const breaks = new Set();
+          const scan = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT);
+          for (let text; (text = scan.nextNode());) {
+            plain += text.nodeValue;
+            let up = text; while (up !== preview && !up.nextSibling) up = up.parentNode;
+            if (up.nextSibling?.nodeName === "BR") breaks.add(plain.length);
+          }
+          const snap = keep => {
+            if (keep <= 0 || keep >= plain.length || breaks.has(keep) || /\s/.test(plain[keep]) || /\s/.test(plain[keep - 1])) return keep;
+            for (let at = keep - 1; at > 0; at--) if (/\s/.test(plain[at - 1]) || breaks.has(at)) return at;
+            return keep;
+          };
+          const cut = wanted => {
+            const keep = snap(wanted);
             preview.innerHTML = preview._znHtml;
             const walker = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT);
             let node, left = keep;
@@ -1719,7 +1746,9 @@ return module.exports; })();
       const note = this._getNote(id); if (!note || note.quick) return;
       const data = await this._readNote(note), now = new Date().toISOString();
       const copy = { ...JSON.parse(JSON.stringify(note)), id: this._makeId(), title: this._copyTitle(data.title), createdAt: now, updatedAt: now };
+      const folder = this._folderOf(note);
       delete copy.file;
+      if (folder) copy.file = `${folder}/${copy.id}.md`; // the copy sits next to the original
       await this._enqueueWrite(async () => {
         await this._writeNoteFile(copy.id, copy.title, data.body, copy);
         this.notes.unshift(copy);
@@ -1896,7 +1925,10 @@ return module.exports; })();
     }
 
     // Notes are stored as "<title>.md" (note.file in index.json); older notes keep "<id>.md" until migrated.
-    _notePath(id) { return Paths.join(this.storageDir, this._getNote(id)?.file || `${id}.md`); }
+    // note.file is relative to the notes folder, with "/" between folders ("Trips/Lisbon.md").
+    _abs(file) { return Paths.join(this.storageDir, ...String(file).split("/")); }
+    _folderOf(note) { const file = note?.file || ""; const slash = file.lastIndexOf("/"); return slash < 0 ? "" : file.slice(0, slash); }
+    _notePath(id) { return this._abs(this._getNote(id)?.file || `${id}.md`); }
 
     _safeFileStem(title) {
       let stem = String(title || "").replace(/[\u0000-\u001f<>:"/\\|?*]/g, " ").replace(/\s+/g, " ").trim().replace(/^[.\s]+|[.\s]+$/g, "");
@@ -1908,14 +1940,15 @@ return module.exports; })();
     // "<title>.md", or "<title> (2).md" when another note (or any foreign file in the folder) already has that name.
     async _uniqueFileName(id, title, ownName) {
       const stem = this._safeFileStem(title);
+      const dir = ownName.includes("/") ? ownName.slice(0, ownName.lastIndexOf("/") + 1) : ""; // a note stays in its folder
       const others = new Set();
       for (const other of this.notes) if (other.id !== id) others.add((other.file || `${other.id}.md`).toLowerCase());
       for (let n = 1; ; n++) {
-        const name = n === 1 ? `${stem}.md` : `${stem} (${n}).md`;
+        const name = n === 1 ? `${dir}${stem}.md` : `${dir}${stem} (${n}).md`;
         const low = name.toLowerCase();
         if (low === ownName.toLowerCase()) return ownName;
         if (others.has(low)) continue;
-        if (await FileIO.exists(Paths.join(this.storageDir, name))) continue;
+        if (await FileIO.exists(this._abs(name))) continue;
         return name;
       }
     }
@@ -1925,15 +1958,15 @@ return module.exports; })();
       const ownName = note?.file || `${id}.md`;
       const name = note?.quick ? ownName : await this._uniqueFileName(id, title, ownName);
       if (name !== ownName) {
-        const from = Paths.join(this.storageDir, ownName);
-        if (await FileIO.exists(from)) await FileIO.move(from, Paths.join(this.storageDir, name));
+        const from = this._abs(ownName);
+        if (await FileIO.exists(from)) await FileIO.move(from, this._abs(name));
         for (const win of Services.wm.getEnumerator("navigator:browser")) {
           const other = win.gZenNotes?.notes?.find(item => item.id === id);
           if (other) other.file = name;
         }
         if (note) note.file = name;
       }
-      await FileIO.writeUTF8(Paths.join(this.storageDir, name), text);
+      await FileIO.writeUTF8(this._abs(name), text);
       for (const win of Services.wm.getEnumerator("navigator:browser")) {
         const other = win.gZenNotes?.notes?.find(item => item.id === id);
         if (other) other.plain = true;
@@ -1952,18 +1985,27 @@ return module.exports; })();
         await this._enqueueWrite(async () => {
           await this._loadIndex();
           const known = new Set(this.notes.flatMap(note => [(note.file || `${note.id}.md`).toLowerCase(), `${note.id}.md`.toLowerCase()]));
-          for (const path of await FileIO.getChildren(this.storageDir)) {
-            const name = Paths.filename(path);
-            if (name.startsWith(".") || !/\.md$/i.test(name) || known.has(name.toLowerCase())) continue;
-            const stem = name.replace(/\.md$/i, "");
-            if (await FileIO.exists(this._deletedPath(stem))) continue; // a deleted note's leftover
-            let info; try { info = await FileIO.stat(path); } catch { continue; }
-            if (info.type !== "regular") continue;
-            const modified = new Date(info.lastModified || Date.now()).toISOString();
-            const created = new Date(info.creationTime || info.lastModified || Date.now()).toISOString();
-            this.notes.push({ id: this._makeId(), title: stem, file: name, plain: true, createdAt: created, updatedAt: modified });
-            known.add(name.toLowerCase()); added++;
-          }
+          // Subfolders are read too; anything starting with a period (.obsidian, .trash, …) is skipped.
+          const walk = async (dir, relative, depth) => {
+            for (const path of await FileIO.getChildren(dir)) {
+              const name = Paths.filename(path);
+              if (name.startsWith(".")) continue;
+              const isMarkdown = /\.md$/i.test(name);
+              if (!isMarkdown && /\.[A-Za-z0-9]{1,5}$/.test(name)) continue; // images, PDFs…: not worth a stat
+              const file = relative ? `${relative}/${name}` : name;
+              if (isMarkdown && known.has(file.toLowerCase())) continue;
+              let info; try { info = await FileIO.stat(path); } catch { continue; }
+              if (info.type === "directory") { if (depth < 8) await walk(path, file, depth + 1); continue; }
+              if (info.type !== "regular" || !isMarkdown) continue;
+              const stem = name.replace(/\.md$/i, "");
+              if (!relative && await FileIO.exists(this._deletedPath(stem))) continue; // a deleted note's leftover
+              const modified = new Date(info.lastModified || Date.now()).toISOString();
+              const created = new Date(info.creationTime || info.lastModified || Date.now()).toISOString();
+              this.notes.push({ id: this._makeId(), title: stem, file, plain: true, createdAt: created, updatedAt: modified });
+              known.add(file.toLowerCase()); added++;
+            }
+          };
+          await walk(this.storageDir, "", 0);
           if (added) await this._writeIndex();
         });
         if (added) for (const win of Services.wm.getEnumerator("navigator:browser")) if (!win.closed && win.gZenNotes && win.gZenNotes !== this) await win.gZenNotes._loadIndex().then(() => win.gZenNotes._refreshNotesLibrary?.());
