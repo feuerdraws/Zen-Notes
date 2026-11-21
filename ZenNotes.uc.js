@@ -352,6 +352,13 @@ return module.exports; })();
         await this._migrateDeletedMarkers();
         await this._loadIndex();
         await this._migrateFileNames().catch(error => console.error(LOG, "File name migration failed", error));
+        await this._adoptVaultFiles().catch(error => console.error(LOG, "Could not scan the notes folder", error));
+        // Files added or renamed by another app (an Obsidian vault, say) are picked up when Zen is focused again.
+        let lastScan = Date.now();
+        window.addEventListener("focus", () => {
+          if (Date.now() - lastScan < 3000) return; lastScan = Date.now();
+          this._adoptVaultFiles().catch(error => console.error(LOG, "Could not scan the notes folder", error));
+        });
 
         this._installNotesLibrary().catch(error => console.warn(LOG, "Library integration unavailable", error));
         this._startAutomaticNotesSync();
@@ -1935,6 +1942,34 @@ return module.exports; })();
     }
 
     // One-off: gives notes saved as "<id>.md" a readable title-based name.
+    // Markdown files that are in the notes folder but not in Zen's index (a vault's existing notes) become notes.
+    // Only the top level of the folder is read; the file name is the title and the text is left untouched.
+    async _adoptVaultFiles() {
+      if (this._adopting) return;
+      this._adopting = true;
+      try {
+        let added = 0;
+        await this._enqueueWrite(async () => {
+          await this._loadIndex();
+          const known = new Set(this.notes.flatMap(note => [(note.file || `${note.id}.md`).toLowerCase(), `${note.id}.md`.toLowerCase()]));
+          for (const path of await FileIO.getChildren(this.storageDir)) {
+            const name = Paths.filename(path);
+            if (name.startsWith(".") || !/\.md$/i.test(name) || known.has(name.toLowerCase())) continue;
+            const stem = name.replace(/\.md$/i, "");
+            if (await FileIO.exists(this._deletedPath(stem))) continue; // a deleted note's leftover
+            let info; try { info = await FileIO.stat(path); } catch { continue; }
+            if (info.type !== "regular") continue;
+            const modified = new Date(info.lastModified || Date.now()).toISOString();
+            const created = new Date(info.creationTime || info.lastModified || Date.now()).toISOString();
+            this.notes.push({ id: this._makeId(), title: stem, file: name, plain: true, createdAt: created, updatedAt: modified });
+            known.add(name.toLowerCase()); added++;
+          }
+          if (added) await this._writeIndex();
+        });
+        if (added) for (const win of Services.wm.getEnumerator("navigator:browser")) if (!win.closed && win.gZenNotes && win.gZenNotes !== this) await win.gZenNotes._loadIndex().then(() => win.gZenNotes._refreshNotesLibrary?.());
+      } finally { this._adopting = false; }
+    }
+
     async _migrateFileNames() {
       await this._loadIndex(); // another window may already have done this
       let changed = false;
