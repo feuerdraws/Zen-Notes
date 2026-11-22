@@ -927,7 +927,7 @@ zen-library .zn-library-note-boost .zen-library-row-subtitle::after { content:"n
   flex: none; width: 18px; height: 18px; color: var(--zn-card-accent);
   fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
 }
-.zn-library-note-card > .zn-note-frame strong {
+.zn-library-note-card > .zn-note-frame strong:not(.zn-library-note-preview *) {
   flex: none; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
   overflow: hidden; overflow-wrap: anywhere; font: 700 12px/1.2 system-ui; letter-spacing: -.02em; margin: 0;
 }
@@ -1006,6 +1006,7 @@ html[data-zl-scheme="dark"] :is(#zen-notes-page, .zen-notes-page-preview) {
 
 /* A custom icon chosen with Zen's "Change Icon…": an emoji, or one of Zen's icons coloured like the note icon. */
 .zn-library-note-card .zn-note-emoji { display: block; font-size: 16px; line-height: 18px; text-align: center; }
+.zn-library-note-card .zn-note-mask.is-plain { background: var(--zn-icon) center / contain no-repeat; -webkit-mask: none; mask: none; }
 .zn-library-note-card .zn-note-mask { display: block; background-color: currentColor; -webkit-mask: var(--zn-icon) center / contain no-repeat; mask: var(--zn-icon) center / contain no-repeat; }
 
 /* Top bar of a note: same layout as an easel's, in the note's own colours. */

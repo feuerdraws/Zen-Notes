@@ -64,24 +64,35 @@
       },
       // Zen's "Change Icon…" picker has no callback here, so the tab is watched until its icon changes.
       watchIcon(tab, onChange) {
-        const read = () => JSON.stringify([tab.zenStaticIcon ?? tab.getAttribute("zen-icon") ?? null, tab.hasAttribute("zen-has-static-icon")]);
-        const before = read();
+        const emojiText = () => { const node = tab.querySelector?.('[class*="emoji" i]'); return node ? (node.textContent || "").trim() : ""; };
+        const sources = () => ({
+          static: tab.zenStaticIcon ?? null, attr: tab.getAttribute("zen-icon"), flag: tab.hasAttribute("zen-has-static-icon"),
+          emoji: emojiText(), image: tab.getAttribute("image"),
+        });
+        const before = JSON.stringify(sources());
         let ticks = 0;
         const timer = setInterval(() => {
-          if (read() !== before) {
+          const now = sources();
+          if (JSON.stringify(now) !== before) {
             clearInterval(timer);
-            const value = tab.zenStaticIcon ?? tab.getAttribute("zen-icon") ?? (tab.hasAttribute("zen-has-static-icon") ? tab.getAttribute("image") : null);
-            console.log("[Zen Notes/Easel] tab icon changed:", value);
-            onChange(value || null);
+            const value = now.static || now.attr || now.emoji || now.image || null;
+            console.log("[Zen Notes/Easel] tab icon changed:", now);
+            onChange(value);
           } else if (++ticks > 300) clearInterval(timer);
         }, 400);
       },
-      // "😀" -> { emoji }, "chrome://…/book.svg" -> { src }
+      // "😀" -> { emoji }, "chrome://…/book.svg" -> { src }; other images are kept as they are ({ src, plain }).
       parseIcon(value) {
         if (!value) return null;
         const text = String(value).trim();
-        if (/^(?:chrome|resource|data|https?|moz-icon|page-icon):|\.svg(?:[?#].*)?$/i.test(text)) return { src: text };
-        return text ? { emoji: [...text].slice(0, 4).join("") } : null;
+        if (/^data:image\/svg\+xml/i.test(text)) { // an emoji drawn as an SVG
+          let svg = text; try { svg = decodeURIComponent(text.slice(text.indexOf(",") + 1)); } catch {}
+          const glyph = svg.match(/<text[^>]*>([^<]+)<\/text>/i)?.[1]?.trim();
+          if (glyph) return { emoji: [...glyph].slice(0, 4).join("") };
+        }
+        if (/^(?:chrome|resource):|^[^:]*\.svg(?:[?#].*)?$/i.test(text) && !/^data:/i.test(text)) return { src: text };
+        if (/^(?:data|https?|moz-icon|page-icon):/i.test(text)) return { src: text, plain: true };
+        return { emoji: [...text].slice(0, 4).join("") };
       },
     };
   })();
@@ -471,7 +482,7 @@ return module.exports; })();
             if (note?.quick && !tab.closing && tab.hasAttribute("zen-dont-split-glance") && !tab.hasAttribute("zen-glance-tab")) this._promoteQuickNote(note.id).catch(console.error);
             if (note) {
               if (tab.getAttribute("zen-notes-tab") !== "true") this._markTab(tab, note);
-              if (tab.getAttribute("image") !== this._filledNoteIcon()) tab.setAttribute("image", this._filledNoteIcon());
+              if (!note.icon && tab.getAttribute("image") !== this._filledNoteIcon()) tab.setAttribute("image", this._filledNoteIcon());
               this._tintTabIcon(tab);
             }
             const isBeingRenamed = this._nativeRename?.tab === tab || globalThis.gZenVerticalTabsManager?._tabEdited === tab;
@@ -1091,7 +1102,7 @@ return module.exports; })();
       const body = this._html("div"); body.className = "zn-note-body";
       let icon;
       if (note.icon?.emoji) { icon = this._html("span"); icon.className = "zn-note-icon zn-note-emoji"; icon.textContent = note.icon.emoji; }
-      else if (note.icon?.src) { icon = this._html("span"); icon.className = "zn-note-icon zn-note-mask"; icon.style.setProperty("--zn-icon", `url("${note.icon.src.replace(/"/g, "%22")}")`); }
+      else if (note.icon?.src) { icon = this._html("span"); icon.className = "zn-note-icon zn-note-mask" + (note.icon.plain ? " is-plain" : ""); icon.style.setProperty("--zn-icon", `url("${note.icon.src.replace(/"/g, "%22")}")`); }
       else {
         icon = document.createElementNS(svgNS, "svg"); icon.setAttribute("class","zn-note-icon"); icon.setAttribute("viewBox","0 0 32 32"); icon.setAttribute("aria-hidden","true");
         const path = document.createElementNS(svgNS, "path"); path.setAttribute("d","M18 4H8a2 2 0 0 0-2 2v22h20V12z M18 4v8h8 M11 17h10 M11 22h7"); icon.append(path);
@@ -2425,7 +2436,8 @@ return module.exports; })();
       const label = `${note.title || "New Note"} — Note`;
       if (tab.zenStaticLabel !== label) tab.zenStaticLabel = label;
       set("label",label); if (tab.label !== label) tab.label = label;
-      if (!note.icon) { set("image",this._filledNoteIcon()); this._tintTabIcon(tab); } // a chosen icon is left to Zen
+      if (!note.icon) { set("image",this._filledNoteIcon()); this._tintTabIcon(tab); }
+      else if (note.icon.src) set("image", note.icon.src); // a chosen emoji is drawn by Zen itself
       try { if (!note.quick) SessionStoreAPI?.setCustomTabValue?.(tab, "zen-notes-id", note.id); } catch {}
     }
 
