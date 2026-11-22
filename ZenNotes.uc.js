@@ -689,8 +689,10 @@ return module.exports; })();
       if (Service.engineManager.get("zennotestest")) return Service;
       const { SyncEngine, Store, LegacyTracker } = ChromeUtils.importESModule("resource://services-sync/engines.sys.mjs");
       const { CryptoWrapper } = ChromeUtils.importESModule("resource://services-sync/record.sys.mjs");
-      let directory = Paths.join(this.storageDir, ".sync-test-v1");
-      const legacyDirectory = Paths.join(this.storageDir, "sync-test-v1");
+      // Notes Sync covers the default container only, so its snapshots can never be restored into another container's folder.
+      const syncRoot = this._stateFor(0).dir;
+      let directory = Paths.join(syncRoot, ".sync-test-v1");
+      const legacyDirectory = Paths.join(syncRoot, "sync-test-v1");
       if (!(await FileIO.exists(directory)) && await FileIO.exists(legacyDirectory)) {
         try { await FileIO.move(legacyDirectory, directory); } catch (error) { console.error(LOG, "Could not hide sync folder", error); directory = legacyDirectory; }
       }
@@ -698,6 +700,14 @@ return module.exports; })();
       const controller = () => {
         for (const win of Services.wm.getEnumerator("navigator:browser")) if (!win.closed && win.gZenNotes) return win.gZenNotes;
         throw new Error("Open a Zen window to sync notes");
+      };
+      // A window showing the default container, if any: only that one reads or restores notes for Sync.
+      const defaultController = () => {
+        for (const win of Services.wm.getEnumerator("navigator:browser")) {
+          const notes = !win.closed && win.gZenNotes;
+          if (notes && notes._active === notes._stateFor(0)) return notes;
+        }
+        return null;
       };
       const validID = id => /^[a-f0-9]{32}$/.test(id);
       const recordPath = id => {
@@ -747,11 +757,13 @@ return module.exports; })();
           const user = await controller()._notesSyncAccount().getSignedInUser();
           const bound = Services.prefs.getStringPref("zen-notes.sync-test.account", "");
           if (!user || !bound || user.uid !== bound) throw new Error("Re-enable Test Notes Sync for this Mozilla Account");
-          await controller()._captureSyncNotes(this, directory);
+          const holder = defaultController();
+          if (holder) await holder._captureSyncNotes(this, directory);
           await SyncEngine.prototype._syncStartup.call(this);
         },
         async _syncFinish() {
-          await controller()._restoreSyncNotes(directory);
+          const holder = defaultController();
+          if (holder) await holder._restoreSyncNotes(directory);
           await SyncEngine.prototype._syncFinish.call(this);
           this.notesTestCompleted = true;
         }
