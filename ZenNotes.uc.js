@@ -898,6 +898,7 @@ return module.exports; })();
       if (!real) return;
       bar.dataset.noteId = note.id;
       bar.querySelector(".zn-bar-title").textContent = note.title || "New Note";
+      const switcherButton = bar.querySelector(".zn-bar-switcher"); if (switcherButton) switcherButton.title = note.title || "New Note";
       const when = Number.isFinite(Date.parse(note.createdAt)) ? new Date(note.createdAt) : null;
       bar.querySelector(".zn-bar-created").textContent = when ? "Created " + new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(when) : "";
     }

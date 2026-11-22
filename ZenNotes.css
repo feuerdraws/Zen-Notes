@@ -942,11 +942,10 @@ zen-library .zn-library-note-boost .zen-library-row-subtitle::after { content:"n
 /* Same look as the editor's block quote: a filled, rounded block (blue-grey in light, deep blue in dark). */
 .zn-library-note-card .zn-library-preview-quote {
   display: block; margin: 2px 0; padding: 3px 7px; border-radius: 6px;
-  --zn-card-wash: color-mix(in srgb, var(--zl-body, #fff) 76%, transparent);
+  --zn-card-wash: rgba(252, 252, 252, .58); color: #1d1d1d;
   background: linear-gradient(var(--zn-card-wash), var(--zn-card-wash)), var(--zen-main-browser-background, var(--zen-primary-color, #5b8bb8));
   background-attachment: fixed;
 }
-html[data-zl-scheme="dark"] .zn-library-note-card .zn-library-preview-quote { --zn-card-wash: color-mix(in srgb, var(--zl-body, #222) 68%, transparent); }
 .zn-library-note-card .zn-library-note-preview mark { color: inherit; background: color-mix(in srgb, #ffd95a 42%, transparent); border-radius: .17em; padding: 0 .07em; }
 .zn-library-note-card .zn-library-note-preview span[style*="background-color"] { border-radius: .17em; padding: 0 .07em; }
 /* Subfolder heading: name on the left, a line after it (like the pinned-tabs separator). Same rule lives in Zen Easel. */
@@ -993,16 +992,15 @@ html[data-zl-scheme="dark"] .zn-library-note-card .zn-library-preview-quote { --
   font: 700 12px/1.2 inherit; letter-spacing: -0.02em;
 }
 
-/* Block quotes wear the current space's theme: its gradient (or its colour) washed with the page colour, so
-   it stays readable. Lighter wash in light mode, heavier in dark mode; the gradient stays fixed to the window. */
+/* Block quotes wear the current space's theme: its gradient (or its colour) under a light wash, with dark text,
+   in light and dark mode alike. The gradient stays fixed to the window. */
 :is(#zen-notes-page, .zen-notes-page-preview) {
-  --zn-quote-wash: color-mix(in srgb, var(--zen-notes-page-bg, #fbfbfb) 76%, transparent);
+  --zn-quote-wash: rgba(252, 252, 252, .58);
+  --zn-quote-ink: #1d1d1d;
   --zn-quote-bg: linear-gradient(var(--zn-quote-wash), var(--zn-quote-wash)),
     var(--zen-main-browser-background, var(--zen-primary-color, #5b8bb8));
 }
-html[data-zl-scheme="dark"] :is(#zen-notes-page, .zen-notes-page-preview) {
-  --zn-quote-wash: color-mix(in srgb, var(--zen-notes-page-bg, #1b1b1b) 68%, transparent);
-}
+:is(#zen-notes-editor, .zen-notes-preview-editor) > .is-quote, .zen-notes-line.is-quote:not(.is-editing) { color: var(--zn-quote-ink) !important; }
 
 /* A custom icon chosen with Zen's "Change Icon…": an emoji, or one of Zen's icons coloured like the note icon. */
 .zn-library-note-card .zn-note-emoji { display: block; font-size: 16px; line-height: 18px; text-align: center; }
@@ -1011,13 +1009,13 @@ html[data-zl-scheme="dark"] :is(#zen-notes-page, .zen-notes-page-preview) {
 
 /* Top bar of a note: same layout as an easel's, in the note's own colours. */
 .zen-notes-footer.zen-notes-topbar {
-  top: 0; left: 0; right: 0; max-width: none; height: 44px; box-sizing: border-box; padding: 0 10px; z-index: 6;
+  position: relative; top: auto; left: auto; right: auto; max-width: none; height: 44px; box-sizing: border-box; padding: 0 10px; z-index: 6;
   display: flex; align-items: center; justify-content: space-between; gap: 12px; pointer-events: auto;
   color: var(--zen-notes-page-fg); background: var(--zen-notes-page-bg);
   border-bottom: 1px solid color-mix(in srgb, var(--zen-notes-page-fg) 12%, transparent); font: 13px/1.2 system-ui;
 }
 .zen-notes-topbar[hidden] { display: none; }
-:is(#zen-notes-page, .zen-notes-page-preview):has(> .zen-notes-topbar:not([hidden])) > .zen-notes-page-scroll { padding-top: 44px; }
+:is(#zen-notes-page, .zen-notes-page-preview):has(> .zen-notes-topbar:not([hidden])) > .zen-notes-page-scroll { height: calc(100% - 44px); }
 .zn-bar-left { position: relative; display: flex; align-items: center; min-width: 0; }
 .zn-bar-right { display: flex; align-items: center; gap: 8px; color: color-mix(in srgb, var(--zen-notes-page-fg) 52%, var(--zen-notes-page-bg)); }
 .zn-bar-created { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -1071,3 +1069,16 @@ zen-library #zen-library-footer .zn-library-storage-btn { display: none; }
 zen-library:has(.zn-library-notes:not([hidden])) #zen-library-footer .zn-library-storage-btn,
 zen-library:has(zen-library-easels-section:not([hidden])) #zen-library-footer .zn-library-storage-btn { display: grid; }
 zen-library:has(.zn-library-storage-btn.is-docked) :is(.zn-library-notes-grid, zen-library-easels-section .easel-card-grid) { padding-bottom: 14px !important; }
+
+/* Switcher: Zen's chrome gives buttons its own padding and min sizes, so everything is fixed here to match Easel's. */
+.zen-notes-topbar :is(.zn-bar-switcher, .zn-bar-close, .zn-bar-item, .zn-bar-action) {
+  appearance: none !important; -moz-appearance: none !important; box-sizing: border-box !important; min-width: 0 !important; min-height: 0 !important;
+  margin: 0 !important; border: 0 !important; font-family: inherit !important; font-size: 13px !important; line-height: normal !important;
+}
+.zen-notes-topbar .zn-bar-switcher { height: 28px !important; padding: 0 10px !important; gap: 6px !important; border-radius: 8px !important; justify-content: flex-start; }
+.zen-notes-topbar .zn-bar-close { height: 28px !important; padding: 0 10px !important; border-radius: 8px !important; font-size: 14px !important; }
+.zen-notes-topbar .zn-bar-item, .zen-notes-topbar .zn-bar-action { padding: 7px 10px !important; border-radius: 7px !important; justify-content: space-between; align-items: center; text-align: left; }
+.zen-notes-topbar .zn-bar-name { line-height: normal; }
+.zen-notes-topbar .zn-bar-list { padding: 6px !important; }
+.zen-notes-topbar .zn-bar-switcher:hover { background: var(--zn-hover) !important; }
+.zen-notes-topbar .zn-bar-switcher.is-open { background: var(--zn-active) !important; }
