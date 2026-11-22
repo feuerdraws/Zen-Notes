@@ -321,13 +321,90 @@ return module.exports; })();
   }
 
   class ZenNotesController {
+    get notes() { return this._active.notes; }
+    set notes(value) { this._active.notes = value; }
+    get storageDir() { return this._active.dir; }
+    get indexPath() { return this._active.indexPath; }
+    set indexPath(value) { this._active.indexPath = value; }
+
+    // ---- containers
+    _activeContainerId() {
+      try {
+        const id = globalThis.gZenWorkspaces?.getActiveWorkspace?.()?.containerTabId;
+        return Number.isFinite(Number(id)) ? Number(id) : 0;
+      } catch { return 0; }
+    }
+    _allContainerIds() {
+      const ids = new Set([0]);
+      try { for (const identity of globalThis.ContextualIdentityService?.getPublicIdentities?.() || []) ids.add(identity.userContextId); } catch {}
+      ids.add(this._activeContainerId());
+      return [...ids];
+    }
+    _containerDirs() { try { return JSON.parse(Services.prefs.getStringPref("zen-notes.container-dirs", "{}")) || {}; } catch { return {}; } }
+    _containerDir(id) {
+      const key = String(id || 0);
+      if (key === "0") {
+        let dir = Paths.join(Paths.profileDir, "zen-notes");
+        try { const custom = Services.prefs.getStringPref("zen-notes.storage-dir", ""); if (custom) dir = custom; } catch {}
+        return dir;
+      }
+      return this._containerDirs()[key] || Paths.join(Paths.profileDir, "zen-notes-containers", key);
+    }
+    _dirKey(dir) { return String(dir).replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase(); }
+    _stateFor(id) {
+      const dir = this._containerDir(id), key = this._dirKey(dir);
+      let state = this._states.get(key);
+      if (!state) {
+        state = { dir, indexPath: Paths.join(dir, ".index.json"), notes: [], loaded: false, peeked: false }; // dot-name: vaults such as Obsidian hide it
+        this._states.set(key, state);
+      }
+      return state;
+    }
+    _ownerOf(id) {
+      for (const state of this._states.values()) if (state.notes.some(note => note.id === id)) return state;
+      return this._active;
+    }
+    // Notes of the other containers are read (not scanned or synced) so their tabs still resolve.
+    async _peekOthers() {
+      for (const containerId of this._allContainerIds()) {
+        const state = this._stateFor(containerId);
+        if (state === this._active || state.loaded || state.peeked) continue;
+        state.peeked = true;
+        try {
+          if (!(await FileIO.exists(state.indexPath))) continue;
+          const parsed = JSON.parse(await FileIO.readUTF8(state.indexPath));
+          state.notes = Array.isArray(parsed?.notes) ? parsed.notes.filter(note => !note.quick) : [];
+          state.hasIndex = true;
+        } catch (error) { console.error(LOG, "Could not read another container's notes", error); }
+      }
+    }
+    // The space (and its container) changed: list and scan that container's folder.
+    async _syncContainer() {
+      if (this._destroyed) return;
+      const state = this._stateFor(this._activeContainerId());
+      if (state === this._active) return;
+      await this._saveCurrentNow();
+      this._active = state;
+      if (!state.loaded) {
+        await FileIO.makeDirectory(state.dir, { createAncestors: true, ignoreExisting: true });
+        await this._migrateDeletedMarkers();
+        await this._loadIndex();
+        state.loaded = true;
+        await this._migrateFileNames().catch(error => console.error(LOG, "File name migration failed", error));
+        await this._adoptVaultFiles().catch(error => console.error(LOG, "Could not scan the notes folder", error));
+      }
+      await this._peekOthers();
+      this._notesLibrarySignature = null;
+      this._refreshNotesLibrary?.();
+    }
+
     constructor() {
-      this.notes = [];
+      // Each Zen container has its own notes folder (and its own .index.json). A "state" is one folder; two
+      // containers pointed at the same folder share one state. Only the active container's state is listed
+      // and scanned, but notes of the others stay reachable so their open tabs keep working.
+      this._states = new Map();
+      this._active = this._stateFor(this._activeContainerId());
       this._quickNotes = new Map();
-      let storageDir = Paths.join(Paths.profileDir, "zen-notes");
-      try { const custom = Services.prefs.getStringPref("zen-notes.storage-dir", ""); if (custom) storageDir = custom; } catch {}
-      this.storageDir = storageDir;
-      this.indexPath = Paths.join(this.storageDir, ".index.json"); // dot-name: vaults such as Obsidian hide it
       this.currentNoteId = null;
       this.noteTabs = new Map();
       this.saveTimer = null;
@@ -442,6 +519,12 @@ return module.exports; })();
         await FileIO.makeDirectory(this.storageDir, { ignoreExisting: true });
         await this._migrateDeletedMarkers();
         await this._loadIndex();
+        this._active.loaded = true;
+        await this._peekOthers();
+        this._onContainerCheck = () => this._syncContainer().catch(error => console.error(LOG, "container switch", error));
+        gBrowser.tabContainer.addEventListener("TabSelect", this._onContainerCheck);
+        window.addEventListener("ZenWorkspaceChanged", this._onContainerCheck);
+        for (const ms of [1500, 5000]) setTimeout(() => this._onContainerCheck?.(), ms);
         await this._migrateFileNames().catch(error => console.error(LOG, "File name migration failed", error));
         await this._adoptVaultFiles().catch(error => console.error(LOG, "Could not scan the notes folder", error));
         if (this._adoptLeader() === this) await this._removeCollisionCopies().catch(error => console.error(LOG, "Duplicate clean-up failed", error));
@@ -820,7 +903,7 @@ return module.exports; })();
       return pending;
     }
 
-    _deletedPath(id) { return Paths.join(this.storageDir, ".deleted", `${id}.deleted`); }
+    _deletedPath(id) { return Paths.join(this._ownerOf(id).dir, ".deleted", `${id}.deleted`); }
 
     async _migrateDeletedMarkers() {
       await FileIO.makeDirectory(Paths.join(this.storageDir, ".deleted"), { ignoreExisting: true });
@@ -853,6 +936,12 @@ return module.exports; })();
         this.indexPath,
         JSON.stringify({ version: 4, notes: this.notes }, null, 2)
       );
+      // Edits made to a note of another container (from one of its tabs) are saved to that container's index.
+      for (const state of this._states.values()) {
+        if (state === this._active || !state.hasIndex || !state.notes.length) continue;
+        try { await FileIO.writeUTF8(state.indexPath, JSON.stringify({ version: 4, notes: state.notes }, null, 2)); }
+        catch (error) { console.error(LOG, "Could not write another container's index", error); }
+      }
       this._scheduleAutomaticNotesSync();
     }
 
@@ -1332,6 +1421,9 @@ return module.exports; })();
       if (result !== Ci.nsIFilePicker.returnOK) return;
       const dir = picker.file.path;
       if (!dir || dir === this.storageDir) return;
+      const mine = this._activeContainerId();
+      const clash = this._allContainerIds().filter(id => id !== mine && this._dirKey(this._containerDir(id)) === this._dirKey(dir));
+      if (clash.length && !Services.prompt.confirm(window, "Merge notes folders?", `Another container already saves its notes in:\n${dir}\n\nUsing the same folder will merge the notes of both containers into one list. Continue?`)) return;
       // Copy, never move: existing notes stay in the old folder as a backup.
       await FileIO.makeDirectory(dir, { createAncestors: true, ignoreExisting: true });
       await this._writes;
@@ -1351,7 +1443,8 @@ return module.exports; })();
         if (await FileIO.exists(dest)) continue;
         await FileIO.copy(path, dest, { recursive: true });
       }
-      Services.prefs.setStringPref("zen-notes.storage-dir", dir);
+      if (mine === 0) Services.prefs.setStringPref("zen-notes.storage-dir", dir);
+      else { const map = this._containerDirs(); map[String(mine)] = dir; Services.prefs.setStringPref("zen-notes.container-dirs", JSON.stringify(map)); }
       if (Services.prompt.confirm(window, "Notes folder changed", `Notes were copied to:\n${dir}\n\nRestart Zen now to start saving there? (Your old folder is left untouched.)`)) {
         Services.startup.quit(Ci.nsIAppStartup.eAttemptQuit | Ci.nsIAppStartup.eRestart);
       }
@@ -2157,7 +2250,7 @@ return module.exports; })();
     // note.file is relative to the notes folder, with "/" between folders ("Trips/Lisbon.md").
     _abs(file) { return Paths.join(this.storageDir, ...String(file).split("/")); }
     _folderOf(note) { const file = note?.file || ""; const slash = file.lastIndexOf("/"); return slash < 0 ? "" : file.slice(0, slash); }
-    _notePath(id) { return this._abs(this._getNote(id)?.file || `${id}.md`); }
+    _notePath(id) { return Paths.join(this._ownerOf(id).dir, ...String(this._getNote(id)?.file || `${id}.md`).split("/")); }
 
     _safeFileStem(title) {
       let stem = String(title || "").replace(/[\u0000-\u001f<>:"/\\|?*]/g, " ").replace(/\s+/g, " ").trim().replace(/^[.\s]+|[.\s]+$/g, "");
@@ -2318,7 +2411,12 @@ return module.exports; })();
       catch (error) { console.error(LOG, error); return false; }
     }
     _noteURL(id) { return `${TAB_URL_PREFIX}${encodeURIComponent(id)}`; }
-    _getNote(id) { return this.notes.find((note) => note.id === id) || this._quickNotes.get(id) || null; }
+    _getNote(id) {
+      const mine = this.notes.find((note) => note.id === id);
+      if (mine) return mine;
+      for (const state of this._states.values()) { const other = state.notes.find((note) => note.id === id); if (other) return other; }
+      return this._quickNotes.get(id) || null;
+    }
 
     _idFromTab(tab) {
       if (tab?.hasAttribute?.("zen-glance-tab") && !tab.hasAttribute("zen-notes-quick")) return null;
@@ -5835,6 +5933,7 @@ function run(argv) {
       document.removeEventListener("TabClose", this._onTabClose, true);
       document.removeEventListener("SSTabRestored", this._onSessionRestored);
       window.removeEventListener("SSWindowStateReady", this._onSessionRestored);
+      if (this._onContainerCheck) { gBrowser.tabContainer.removeEventListener("TabSelect", this._onContainerCheck); window.removeEventListener("ZenWorkspaceChanged", this._onContainerCheck); this._onContainerCheck = null; }
       this.observer?.disconnect();
       this.titleObserver?.disconnect();
       this._unregisterNotesProvider?.();

@@ -1084,3 +1084,15 @@ zen-library:has(zen-library-easels-section:not([hidden])) > .zn-library-storage-
 .zen-notes-topbar .zn-bar-list { padding: 6px !important; }
 .zen-notes-topbar .zn-bar-switcher:hover { background: var(--zn-hover) !important; }
 .zen-notes-topbar .zn-bar-switcher.is-open { background: var(--zn-active) !important; }
+
+/* Dark mode: the wash follows the page colour (dark) instead of white, so the space's colour stays visible. */
+html[data-zl-scheme="dark"] :is(#zen-notes-page, .zen-notes-page-preview) {
+  --zn-quote-wash: color-mix(in srgb, var(--zen-notes-page-bg, #1b1b1b) 34%, transparent);
+  --zn-quote-tint: color-mix(in srgb, var(--zen-primary-color, #5b8bb8) 62%, transparent);
+  --zn-quote-ink: var(--zen-notes-page-fg, #f2f2f2);
+}
+html[data-zl-scheme="dark"] .zn-library-note-card .zn-library-preview-quote {
+  --zn-card-wash: color-mix(in srgb, var(--zl-body, #2a2a2a) 34%, transparent);
+  --zn-card-tint: color-mix(in srgb, var(--zen-primary-color, #5b8bb8) 62%, transparent);
+  color: var(--zl-ink, #fff);
+}
