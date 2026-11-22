@@ -1291,6 +1291,16 @@ return module.exports; })();
       const btn = this._storageBtn;
       if (!btn || this._destroyed) return;
       requestAnimationFrame(() => {
+        // Zen's Library has a footer row (back, brush…). The button lives there, so it shares their height and
+        // the list ends above the row instead of scrolling underneath a floating button.
+        const footer = document.querySelector("zen-library #zen-library-footer");
+        if (footer) {
+          if (btn.parentElement !== footer) footer.append(btn);
+          btn.classList.add("is-docked"); btn.style.left = btn.style.top = "";
+          const mate = [...footer.querySelectorAll("button, toolbarbutton, moz-button, [role='button']")].find(node => node !== btn && node.getBoundingClientRect().width > 0);
+          if (mate) { const box = mate.getBoundingClientRect(); btn.style.width = box.width + "px"; btn.style.height = box.height + "px"; }
+          return;
+        }
         const host = btn.parentElement; if (!btn.isConnected || !host) return;
         const col = host.getBoundingClientRect(); if (!col.width) return;
         btn.style.left = "0px"; btn.style.top = "0px";
@@ -1369,6 +1379,7 @@ return module.exports; })();
         input.addEventListener("input",()=>this._previewRename(id,input.value));
       });
       action("Duplicate Note",()=>this._duplicateNote(id));
+      if(this._getNote(id)?.icon)action("Reset Icon",()=>this._setNoteIcon(id,null).then(()=>{for(const tab of gBrowser.tabs)if(tab.getAttribute("zen-notes-id")===id)this._markTab(tab,this._getNote(id));}));
       popup.append(document.createXULElement("menuseparator"));
       action("Export Note…",()=>this._exportNote(id));
       action(Services.appinfo.OS==="Darwin"?"Show in Finder":"Show in Files",()=>this._revealNote(id));

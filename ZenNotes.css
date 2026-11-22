@@ -1047,3 +1047,27 @@ html[data-zl-scheme="dark"] :is(#zen-notes-page, .zen-notes-page-preview) {
 .zn-bar-when { flex: none; font-size: 11px; opacity: .55; }
 .zn-bar-action.is-danger { color: #e5484d; }
 .zn-bar-separator { height: 1px; margin: 6px 4px; background: color-mix(in srgb, var(--zen-notes-page-fg) 14%, transparent); }
+
+/* The switcher matches Zen Easel's: same sizes, frosted list, hover and current rows. */
+.zen-notes-topbar { --zn-hover: color-mix(in srgb, var(--zen-notes-page-fg) 8%, transparent); --zn-active: color-mix(in srgb, var(--zen-notes-page-fg) 15%, transparent); --zn-edge: color-mix(in srgb, var(--zen-notes-page-fg) 12%, transparent); }
+.zn-bar-switcher { transition: background 110ms ease; }
+.zn-bar-list {
+  box-sizing: border-box; overflow-x: hidden; top: 34px; border: 1px solid var(--zn-edge); border-radius: 14px;
+  background: color-mix(in srgb, var(--zen-notes-page-bg) 82%, transparent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .25), 0 12px 32px rgba(0, 0, 0, .32);
+  backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%);
+  animation: zn-bar-pop 150ms cubic-bezier(.2, .8, .2, 1) both; transform-origin: top left;
+}
+.zn-bar-item, .zn-bar-action { box-sizing: border-box; font-size: 13px; transition: background 110ms ease; }
+.zn-bar-item:hover, .zn-bar-action:hover { background: var(--zn-hover); }
+.zn-bar-item.is-current { background: var(--zn-active); }
+.zn-bar-separator { background: var(--zn-edge); }
+.zn-bar-when { color: color-mix(in srgb, var(--zen-notes-page-fg) 52%, transparent); opacity: 1; }
+@keyframes zn-bar-pop { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: none; } }
+
+/* Default-folder button, docked in the Library footer next to Zen's own buttons. */
+.zn-library-storage-btn.is-docked { position: static; margin-inline-start: auto; flex: none; align-self: center; }
+zen-library #zen-library-footer .zn-library-storage-btn { display: none; }
+zen-library:has(.zn-library-notes:not([hidden])) #zen-library-footer .zn-library-storage-btn,
+zen-library:has(zen-library-easels-section:not([hidden])) #zen-library-footer .zn-library-storage-btn { display: grid; }
+zen-library:has(.zn-library-storage-btn.is-docked) :is(.zn-library-notes-grid, zen-library-easels-section .easel-card-grid) { padding-bottom: 14px !important; }
