@@ -865,7 +865,7 @@ return module.exports; })();
     _noteFooter(note, interactive = true) {
       const bar = this._html("header"); bar.className = "zen-notes-footer zen-notes-topbar";
       const left = this._html("div"); left.className = "zn-bar-left";
-      const switcher = this._html("button"); switcher.type = "button"; switcher.className = "zn-bar-switcher";
+      const switcher = this._html("button"); switcher.type = "button"; switcher.className = "zn-bar-switcher"; switcher.title = "Switch note";
       const name = this._html("span"); name.className = "zn-bar-title";
       const chevron = this._html("span"); chevron.className = "zn-bar-chevron"; chevron.textContent = "▾";
       switcher.append(name, chevron);
@@ -898,7 +898,6 @@ return module.exports; })();
       if (!real) return;
       bar.dataset.noteId = note.id;
       bar.querySelector(".zn-bar-title").textContent = note.title || "New Note";
-      const switcherButton = bar.querySelector(".zn-bar-switcher"); if (switcherButton) switcherButton.title = note.title || "New Note";
       const when = Number.isFinite(Date.parse(note.createdAt)) ? new Date(note.createdAt) : null;
       bar.querySelector(".zn-bar-created").textContent = when ? "Created " + new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(when) : "";
     }
@@ -1286,31 +1285,41 @@ return module.exports; })();
       return this._storageBtn = btn;
     }
 
-    // Pins the round button to the bottom-right of the Library column. It is position:fixed;
-    // measuring where (0,0) lands makes this correct even if an ancestor creates a containing block.
+    // Pins the button to the bottom-right of the notes list, centred on the same line as Zen's own footer buttons
+    // (back, brush…). The list is cut off just above that line, so nothing scrolls underneath the button.
+    // The button lives on <zen-library> itself, outside every scroller, so the cut never hides it.
     _placeStorageButton() {
       const btn = this._storageBtn;
       if (!btn || this._destroyed) return;
       requestAnimationFrame(() => {
-        // Zen's Library has a footer row (back, brush…). The button lives there, so it shares their height and
-        // the list ends above the row instead of scrolling underneath a floating button.
-        const footer = document.querySelector("zen-library #zen-library-footer");
-        if (footer) {
-          if (btn.parentElement !== footer) footer.append(btn);
-          btn.classList.add("is-docked"); btn.style.left = btn.style.top = "";
-          const mate = [...footer.querySelectorAll("button, toolbarbutton, moz-button, [role='button']")].find(node => node !== btn && node.getBoundingClientRect().width > 0);
-          if (mate) { const box = mate.getBoundingClientRect(); btn.style.width = box.width + "px"; btn.style.height = box.height + "px"; }
-          return;
-        }
-        const host = btn.parentElement; if (!btn.isConnected || !host) return;
-        const col = host.getBoundingClientRect(); if (!col.width) return;
+        const library = document.querySelector("zen-library");
+        if (!btn.isConnected || btn.parentElement !== library) library?.append(btn);
+        if (!library) return;
+        const section = library.querySelector(".zn-library-notes:not([hidden])") || library.querySelector("zen-library-easels-section:not([hidden])");
+        for (const node of this._storageCut || []) node.style.removeProperty("clip-path");
+        this._storageCut = [];
+        if (!section) return;
+        const col = section.getBoundingClientRect(); if (!col.width) return;
+        const mate = [...library.querySelectorAll("#zen-library-footer button, #zen-library-footer toolbarbutton, #zen-library-footer moz-button, #zen-library-footer [role='button']")]
+          .find(node => node.getBoundingClientRect().width > 0);
+        const mateBox = mate?.getBoundingClientRect();
+        const size = mateBox?.width || 30;
+        btn.style.width = btn.style.height = size + "px";
         btn.style.left = "0px"; btn.style.top = "0px";
         const origin = btn.getBoundingClientRect();
-        const size = origin.width || 30;
         const wantLeft = Math.min(col.right, window.innerWidth) - size - 12;
-        const wantTop = window.innerHeight - size - 14;
+        const wantTop = mateBox ? mateBox.top + (mateBox.height - size) / 2 : window.innerHeight - size - 14;
         btn.style.left = (wantLeft - origin.left) + "px";
         btn.style.top = (wantTop - origin.top) + "px";
+        // The hard cut: every scroller in the section is clipped a little above the button row.
+        const barTop = (mateBox ? mateBox.top : wantTop) - 8;
+        const scrollers = [section, ...section.querySelectorAll("*")];
+        for (let up = section.parentElement; up && up !== library; up = up.parentElement) scrollers.push(up);
+        for (const node of scrollers) {
+          if (node === btn || !/auto|scroll/.test(getComputedStyle(node).overflowY)) continue;
+          const inset = node.getBoundingClientRect().bottom - barTop;
+          if (inset > 0) { node.style.setProperty("clip-path", `inset(0 0 ${Math.ceil(inset)}px 0)`); this._storageCut.push(node); }
+        }
       });
     }
 
@@ -2614,7 +2623,7 @@ return module.exports; })();
           }
           this._renderAllLines(body);
         } finally { this.currentNoteId = previous; }
-        scroll.append(canvas); preview.append(scroll, this._noteFooter(note, false)); this._applyBoost(preview, id);
+        scroll.append(canvas); preview.append(this._noteFooter(note, false), scroll); this._applyBoost(preview, id);
         preview.addEventListener("pointerdown", event => { event.preventDefault(); this._openLinkedNote(id); this._syncSelectedTab().catch(console.error); });
         host.classList.add("zen-notes-page-host"); host.setAttribute("zen-notes-active", "true"); host.append(preview);
       }
@@ -2782,7 +2791,7 @@ return module.exports; })();
       });
       canvas.append(title, editor);
       scroll.append(canvas);
-      page.append(scroll, this._noteFooter(null));
+      page.append(this._noteFooter(null), scroll);
       // The bar's name follows the heading, whoever changes it (typing, the sidebar field, the library tile).
       new MutationObserver(() => { const label = page.querySelector(".zn-bar-title"); if (label) label.textContent = title.textContent.trim() || "New Note"; })
         .observe(title, { childList: true, characterData: true, subtree: true });
