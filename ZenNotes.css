@@ -1096,3 +1096,6 @@ html[data-zl-scheme="dark"] .zn-library-note-card .zn-library-preview-quote {
   --zn-card-tint: color-mix(in srgb, var(--zen-primary-color, #5b8bb8) 62%, transparent);
   color: var(--zl-ink, #fff);
 }
+
+/* The switcher's corners follow Zen's own popup radius, like its menus. */
+.zen-notes-topbar .zn-bar-list { border-radius: var(--arrowpanel-border-radius, var(--border-radius-medium, 14px)) !important; }

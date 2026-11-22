@@ -330,7 +330,11 @@ return module.exports; })();
     // ---- containers
     _activeContainerId() {
       try {
-        const id = globalThis.gZenWorkspaces?.getActiveWorkspace?.()?.containerTabId;
+        const zen = globalThis.gZenWorkspaces;
+        let workspace = zen?.getActiveWorkspaceFromCache?.() ?? zen?.getActiveWorkspace?.();
+        if (workspace && typeof workspace.then === "function") workspace = null; // async in some Zen versions
+        let id = workspace?.containerTabId;
+        if (id == null) id = gBrowser.selectedTab?.userContextId; // the space's own tabs carry its container
         return Number.isFinite(Number(id)) ? Number(id) : 0;
       } catch { return 0; }
     }
@@ -384,6 +388,7 @@ return module.exports; })();
       const state = this._stateFor(this._activeContainerId());
       if (state === this._active) return;
       await this._saveCurrentNow();
+      console.log(LOG, "container", this._activeContainerId(), "->", state.dir);
       this._active = state;
       if (!state.loaded) {
         await FileIO.makeDirectory(state.dir, { createAncestors: true, ignoreExisting: true });
@@ -525,6 +530,7 @@ return module.exports; })();
         gBrowser.tabContainer.addEventListener("TabSelect", this._onContainerCheck);
         window.addEventListener("ZenWorkspaceChanged", this._onContainerCheck);
         for (const ms of [1500, 5000]) setTimeout(() => this._onContainerCheck?.(), ms);
+        this._containerPoll = setInterval(() => this._onContainerCheck?.(), 2000); // spaces can come up late after a start
         await this._migrateFileNames().catch(error => console.error(LOG, "File name migration failed", error));
         await this._adoptVaultFiles().catch(error => console.error(LOG, "Could not scan the notes folder", error));
         if (this._adoptLeader() === this) await this._removeCollisionCopies().catch(error => console.error(LOG, "Duplicate clean-up failed", error));
@@ -5933,6 +5939,7 @@ function run(argv) {
       document.removeEventListener("TabClose", this._onTabClose, true);
       document.removeEventListener("SSTabRestored", this._onSessionRestored);
       window.removeEventListener("SSWindowStateReady", this._onSessionRestored);
+      clearInterval(this._containerPoll);
       if (this._onContainerCheck) { gBrowser.tabContainer.removeEventListener("TabSelect", this._onContainerCheck); window.removeEventListener("ZenWorkspaceChanged", this._onContainerCheck); this._onContainerCheck = null; }
       this.observer?.disconnect();
       this.titleObserver?.disconnect();
