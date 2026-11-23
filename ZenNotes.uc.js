@@ -1419,6 +1419,10 @@ return module.exports; })();
         btn.style.left = (wantLeft - origin.left) + "px";
         btn.style.top = (wantTop - origin.top) + "px";
         // The hard cut: every scroller in the section is clipped a little above the button row.
+        let line = library.querySelector(":scope > .zn-library-cut-line");
+        if (!line) { line = document.createElement("div"); line.className = "zn-library-cut-line"; library.append(line); }
+        const lineBox = section.getBoundingClientRect();
+        line.style.left = lineBox.left + "px"; line.style.width = lineBox.width + "px";
         const barTop = (mateBox ? mateBox.top : wantTop) - 8;
         const scrollers = [section, ...section.querySelectorAll("*")];
         for (let up = section.parentElement; up && up !== library; up = up.parentElement) scrollers.push(up);
@@ -1427,6 +1431,12 @@ return module.exports; })();
           const inset = node.getBoundingClientRect().bottom - barTop;
           if (inset > 0) { node.style.setProperty("clip-path", `inset(0 0 ${Math.ceil(inset)}px 0)`); this._storageCut.push(node); }
         }
+        // A thin line marks the cut, only while something is hidden below it (like Zen's pinned-tabs divider).
+        line.style.top = barTop + "px";
+        const cutters = this._storageCut.filter(node => node.scrollHeight > node.clientHeight);
+        const update = () => { line.classList.toggle("is-on", cutters.some(node => node.scrollHeight - node.clientHeight - node.scrollTop > 2)); };
+        for (const node of cutters) { node.removeEventListener("scroll", node._znCutUpdate); node._znCutUpdate = update; node.addEventListener("scroll", update, { passive: true }); }
+        update();
       });
     }
 
@@ -2266,7 +2276,7 @@ return module.exports; })();
 
     // Notes are stored as "<title>.md" (note.file in index.json); older notes keep "<id>.md" until migrated.
     // note.file is relative to the notes folder, with "/" between folders ("Trips/Lisbon.md").
-    _abs(file) { return Paths.join(this.storageDir, ...String(file).split("/")); }
+    _abs(file, root = this.storageDir) { return Paths.join(root, ...String(file).split("/")); }
     _folderOf(note) { const file = note?.file || ""; const slash = file.lastIndexOf("/"); return slash < 0 ? "" : file.slice(0, slash); }
     _notePath(id) { return Paths.join(this._ownerOf(id).dir, ...String(this._getNote(id)?.file || `${id}.md`).split("/")); }
 
@@ -2278,17 +2288,18 @@ return module.exports; })();
     }
 
     // "<title>.md", or "<title> (2).md" when another note (or any foreign file in the folder) already has that name.
-    async _uniqueFileName(id, title, ownName) {
+    async _uniqueFileName(id, title, ownName, root = this.storageDir) {
       const stem = this._safeFileStem(title);
       const dir = ownName.includes("/") ? ownName.slice(0, ownName.lastIndexOf("/") + 1) : ""; // a note stays in its folder
       const others = new Set();
-      for (const other of this.notes) if (other.id !== id) others.add((other.file || `${other.id}.md`).toLowerCase());
+      const owner = [...this._states.values()].find(state => state.dir === root) || this._active;
+      for (const other of owner.notes) if (other.id !== id) others.add((other.file || `${other.id}.md`).toLowerCase());
       for (let n = 1; ; n++) {
         const name = n === 1 ? `${dir}${stem}.md` : `${dir}${stem} (${n}).md`;
         const low = name.toLowerCase();
         if (low === ownName.toLowerCase()) return ownName;
         if (others.has(low)) continue;
-        if (await FileIO.exists(this._abs(name))) continue;
+        if (await FileIO.exists(this._abs(name, root))) continue;
         return name;
       }
     }
@@ -2296,17 +2307,19 @@ return module.exports; })();
     // Writes a note file under the name its title gives it, moving the file first if the title changed.
     async _writeNoteFile(id, title, text, note = this._getNote(id)) {
       const ownName = note?.file || `${id}.md`;
-      const name = note?.quick ? ownName : await this._uniqueFileName(id, title, ownName);
+      // The folder of the container the note belongs to, which may not be the one being shown.
+      const root = this._ownerOf(id).dir;
+      const name = note?.quick ? ownName : await this._uniqueFileName(id, title, ownName, root);
       if (name !== ownName) {
-        const from = this._abs(ownName);
-        if (await FileIO.exists(from)) await FileIO.move(from, this._abs(name));
+        const from = this._abs(ownName, root);
+        if (await FileIO.exists(from)) await FileIO.move(from, this._abs(name, root));
         for (const win of Services.wm.getEnumerator("navigator:browser")) {
           const other = win.gZenNotes?.notes?.find(item => item.id === id);
           if (other) other.file = name;
         }
         if (note) note.file = name;
       }
-      await FileIO.writeUTF8(this._abs(name), text);
+      await FileIO.writeUTF8(this._abs(name, root), text);
       for (const win of Services.wm.getEnumerator("navigator:browser")) {
         const other = win.gZenNotes?.notes?.find(item => item.id === id);
         if (other) other.plain = true;

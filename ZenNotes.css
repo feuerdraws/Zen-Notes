@@ -1099,3 +1099,10 @@ html[data-zl-scheme="dark"] .zn-library-note-card .zn-library-preview-quote {
 
 /* The switcher's corners follow Zen's own popup radius, like its menus. */
 .zen-notes-topbar .zn-bar-list { border-radius: var(--arrowpanel-border-radius, var(--border-radius-medium, 14px)) !important; }
+
+/* Line at the foot of the notes list, shown while the list continues underneath the cut. */
+zen-library > .zn-library-cut-line { position: fixed; height: 1px; z-index: 5; pointer-events: none; opacity: 0; transition: opacity 120ms ease;
+  background: color-mix(in srgb, currentColor 18%, transparent); display: none; }
+zen-library:has(.zn-library-notes:not([hidden])) > .zn-library-cut-line,
+zen-library:has(zen-library-easels-section:not([hidden])) > .zn-library-cut-line { display: block; }
+zen-library > .zn-library-cut-line.is-on { opacity: 1; }
