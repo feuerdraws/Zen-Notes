@@ -1054,7 +1054,7 @@ return module.exports; })();
           key: "note:" + note.id, title: note.title || "", folder: this._folderOf(note), updatedAt: Date.parse(note.updatedAt || note.createdAt || "") || 0,
           node: this._noteCardNode(note)
         })),
-        create: () => this.createNote(),
+        create: folder => this.createNote(folder),
         footer: () => this._storageButton(),
         place: () => this._placeStorageButton()
       };
@@ -1187,6 +1187,7 @@ return module.exports; })();
       const blocks = [];
       for (const [folder, list] of [...groups].filter(([name]) => name).sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base", numeric: true }))) {
         const head = this._html("div"); head.className = "zl-folder-head"; const label = this._html("span"); label.textContent = folder; head.append(label);
+        head.append(this._folderNewButton(folder));
         const grid = this._html("div"); grid.className = "zen-library-media-grid zn-library-notes-grid"; grid.append(...cardsFor(list));
         blocks.push(head, grid);
       }
@@ -1240,6 +1241,16 @@ return module.exports; })();
     }
 
     // Dashed "+" card for the Notes-only tab. (The merged tab uses Easel's own "+" card, so there is only ever one.)
+    // "New" at the end of a subfolder's heading line (fades in on hover, like Zen's "Clear"): makes a note in that folder.
+    _folderNewButton(folder, after) {
+      const button = this._html("button"); button.type = "button"; button.className = "zl-folder-new"; button.textContent = "New"; button.title = `New note in ${folder}`;
+      button.addEventListener("click", event => {
+        event.preventDefault(); event.stopPropagation();
+        this.createNote(folder).then(() => after?.()).catch(error => this._libraryNotice("Could not create note: " + error.message));
+      });
+      return button;
+    }
+
     _newNoteCard() {
       if (this._newCard) return this._newCard;
       const card = this._html("div"); card.className = "zn-library-note-new"; card.setAttribute("role","button"); card.tabIndex = 0;
@@ -1398,45 +1409,54 @@ return module.exports; })();
     _placeStorageButton() {
       const btn = this._storageBtn;
       if (!btn || this._destroyed) return;
-      requestAnimationFrame(() => {
+      cancelAnimationFrame(this._storageFrame);
+      this._storageFrame = requestAnimationFrame(() => {
         const library = document.querySelector("zen-library");
         if (!btn.isConnected || btn.parentElement !== library) library?.append(btn);
         if (!library) return;
-        const section = library.querySelector(".zn-library-notes:not([hidden])") || library.querySelector("zen-library-easels-section:not([hidden])");
         for (const node of this._storageCut || []) node.style.removeProperty("clip-path");
         this._storageCut = [];
+        const section = library.querySelector(".zn-library-notes:not([hidden])") || library.querySelector("zen-library-easels-section:not([hidden])");
         if (!section) return;
-        const col = section.getBoundingClientRect(); if (!col.width) return;
-        const mate = [...library.querySelectorAll("#zen-library-footer button, #zen-library-footer toolbarbutton, #zen-library-footer moz-button, #zen-library-footer [role='button']")]
-          .find(node => node.getBoundingClientRect().width > 0);
-        const mateBox = mate?.getBoundingClientRect();
-        const size = mateBox?.width || 30;
-        btn.style.width = btn.style.height = size + "px";
-        btn.style.left = "0px"; btn.style.top = "0px";
-        const origin = btn.getBoundingClientRect();
-        const wantLeft = Math.min(col.right, window.innerWidth) - size - 12;
-        const wantTop = mateBox ? mateBox.top + (mateBox.height - size) / 2 : window.innerHeight - size - 14;
-        btn.style.left = (wantLeft - origin.left) + "px";
-        btn.style.top = (wantTop - origin.top) + "px";
-        // The hard cut: every scroller in the section is clipped a little above the button row.
         let line = library.querySelector(":scope > .zn-library-cut-line");
         if (!line) { line = document.createElement("div"); line.className = "zn-library-cut-line"; library.append(line); }
-        const lineBox = section.getBoundingClientRect();
-        line.style.left = lineBox.left + "px"; line.style.width = lineBox.width + "px";
-        const barTop = (mateBox ? mateBox.top : wantTop) - 8;
         const scrollers = [section, ...section.querySelectorAll("*")];
         for (let up = section.parentElement; up && up !== library; up = up.parentElement) scrollers.push(up);
-        for (const node of scrollers) {
-          if (node === btn || !/auto|scroll/.test(getComputedStyle(node).overflowY)) continue;
-          const inset = node.getBoundingClientRect().bottom - barTop;
-          if (inset > 0) { node.style.setProperty("clip-path", `inset(0 0 ${Math.ceil(inset)}px 0)`); this._storageCut.push(node); }
-        }
-        // A thin line marks the cut, only while something is hidden below it (like Zen's pinned-tabs divider).
-        line.style.top = barTop + "px";
-        const cutters = this._storageCut.filter(node => node.scrollHeight > node.clientHeight);
-        const update = () => { line.classList.toggle("is-on", cutters.some(node => node.scrollHeight - node.clientHeight - node.scrollTop > 2)); };
+        const cutters = scrollers.filter(node => node !== btn && /auto|scroll/.test(getComputedStyle(node).overflowY));
+        const footerButtons = "#zen-library-footer button, #zen-library-footer toolbarbutton, #zen-library-footer moz-button, #zen-library-footer [role='button']";
+        const update = () => {
+          line.classList.toggle("is-on", cutters.some(node => node.scrollHeight - node.clientHeight - node.scrollTop > 2 && node.clientHeight > 0));
+        };
         for (const node of cutters) { node.removeEventListener("scroll", node._znCutUpdate); node._znCutUpdate = update; node.addEventListener("scroll", update, { passive: true }); }
-        update();
+        // The library slides in, so the button, line and cut follow it frame by frame until it settles.
+        const started = performance.now();
+        const follow = () => {
+          if (this._destroyed || !btn.isConnected) return;
+          const col = section.getBoundingClientRect();
+          if (col.width) {
+            const mate = [...library.querySelectorAll(footerButtons)].find(node => node.getBoundingClientRect().width > 0);
+            const mateBox = mate?.getBoundingClientRect();
+            const size = mateBox?.width || 30;
+            btn.style.width = btn.style.height = size + "px";
+            btn.style.left = "0px"; btn.style.top = "0px";
+            const origin = btn.getBoundingClientRect(); // where (0,0) of this fixed box really is
+            const wantLeft = Math.min(col.right, window.innerWidth) - size - 12;
+            const wantTop = mateBox ? mateBox.top + (mateBox.height - size) / 2 : window.innerHeight - size - 14;
+            btn.style.left = (wantLeft - origin.left) + "px";
+            btn.style.top = (wantTop - origin.top) + "px";
+            const barTop = (mateBox ? mateBox.top : wantTop) - 8;
+            line.style.left = (col.left - origin.left) + "px"; line.style.width = col.width + "px"; line.style.top = (barTop - origin.top) + "px";
+            this._storageCut = [];
+            for (const node of cutters) {
+              const inset = node.getBoundingClientRect().bottom - barTop;
+              if (inset > 0) { node.style.setProperty("clip-path", `inset(0 0 ${Math.ceil(inset)}px 0)`); this._storageCut.push(node); }
+              else node.style.removeProperty("clip-path");
+            }
+            update();
+          }
+          if (performance.now() - started < 1100) this._storageFrame = requestAnimationFrame(follow);
+        };
+        follow();
       });
     }
 
@@ -2464,10 +2484,12 @@ return module.exports; })();
       try { return decodeURIComponent(spec.slice(prefix.length)); } catch { return null; }
     }
 
-    async createNote() {
+    // `folder` (optional): a subfolder of the notes folder to create the note in.
+    async createNote(folder = "") {
       await this._saveCurrentNow();
       const now = new Date().toISOString();
       const note = { id: this._makeId(), title: "New Note", createdAt: now, updatedAt: now };
+      if (typeof folder === "string" && folder) note.file = `${folder}/${note.id}.md`;
       await this._writeNoteFile(note.id, "New Note", "", note);
       this.notes.unshift(note);
       await this._writeIndex();

@@ -1106,3 +1106,9 @@ zen-library > .zn-library-cut-line { position: fixed; height: 1px; z-index: 5; p
 zen-library:has(.zn-library-notes:not([hidden])) > .zn-library-cut-line,
 zen-library:has(zen-library-easels-section:not([hidden])) > .zn-library-cut-line { display: block; }
 zen-library > .zn-library-cut-line.is-on { opacity: 1; }
+
+/* "New" at the end of a subfolder's line: fades in while the heading is hovered. */
+.zl-folder-head .zl-folder-new { order: 3; flex: none; opacity: 0; transition: opacity 140ms ease; padding: 2px 6px; border: 0; border-radius: 6px;
+  background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.zl-folder-head:hover .zl-folder-new, .zl-folder-head .zl-folder-new:focus-visible { opacity: 1; }
+.zl-folder-head .zl-folder-new:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
