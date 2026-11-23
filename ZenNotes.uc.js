@@ -101,6 +101,22 @@
           : icon.src;
         if (tab.getAttribute("image") !== src) { try { gBrowser.setIcon(tab, src); } catch {} if (tab.getAttribute("image") !== src) tab.setAttribute("image", src); }
       },
+      // Library menus: Zen's own "Add to Essentials" and split view for a tab that is not the selected one.
+      essentials(tab) {
+        try { if (globalThis.gZenPinnedTabManager?.addToEssentials) { gZenPinnedTabManager.addToEssentials(tab); return true; } } catch (error) { console.error(error); }
+        const menu = document.getElementById("tabContextMenu");
+        const item = menu && [...menu.querySelectorAll("menuitem")].find(node => /essentials/i.test(labelOf(node)) || /essentials/i.test(node.id || ""));
+        if (!item) return false;
+        for (const key of ["_contextTab", "contextTab"]) { try { TabContextMenu[key] = tab; } catch {} }
+        item.doCommand(); return true;
+      },
+      splitWith(tab) {
+        try {
+          const selected = gBrowser.selectedTab;
+          if (!globalThis.gZenViewSplitter?.splitTabs || !selected || selected === tab) return false;
+          gZenViewSplitter.splitTabs([selected, tab]); return true;
+        } catch (error) { console.error(error); return false; }
+      },
       // Opens Zen's own icon picker for a tab that is not the one the context menu was opened on (library menus).
       changeIcon(tab, onChange, defaults = []) {
         const menu = document.getElementById("tabContextMenu");
@@ -1024,7 +1040,7 @@ return module.exports; })();
       );
       // Edits made to a note of another container (from one of its tabs) are saved to that container's index.
       for (const state of this._states.values()) {
-        if (state === this._active || !state.hasIndex || !state.notes.length) continue;
+        if (state === this._active || !state.hasIndex) continue;
         try { await FileIO.writeUTF8(state.indexPath, JSON.stringify({ version: 4, notes: state.notes }, null, 2)); }
         catch (error) { console.error(LOG, "Could not write another container's index", error); }
       }
@@ -1340,6 +1356,7 @@ return module.exports; })();
       await FileIO.makeDirectory(this._abs(name), { createAncestors: true });
       if (!this._folderList.includes(name)) this._folderList = [...this._folderList, name];
       this._renamingFolder = name; this._notesLibrarySignature = null; this._refreshNotesLibrary();
+      return name;
     }
 
     _startFolderRename(name) { this._renamingFolder = name; this._notesLibrarySignature = null; this._refreshNotesLibrary(); }
@@ -1370,6 +1387,8 @@ return module.exports; })();
       const popup = document.createXULElement("menupopup"); popup.id = "zen-notes-folder-menu";
       (document.getElementById("mainPopupSet") || document.documentElement).append(popup);
       popup.append(this._menuItem("Change label…", () => this._startFolderRename(folder)));
+      popup.append(document.createXULElement("menuseparator"));
+      popup.append(this._menuItem("Delete Folder", () => this._deleteFolder(folder)));
       popup.addEventListener("popuphidden", () => popup.remove(), { once: true });
       popup.openPopupAtScreen(event.screenX, event.screenY, true);
     }
@@ -1686,7 +1705,19 @@ return module.exports; })();
         try {await fn();if(label!=="Change label…"){this._notesLibrarySignature=null;this._refreshNotesLibrary();}}
         catch(error){this._libraryNotice(error.message);}
       }));
+      const note0=this._getNote(id); if(!note0)return;
+      const openTab=()=>{const tab=this.noteTabs.get(id);return tab&&tab.isConnected&&!tab.closing?tab:null;};
+      const ensureTab=()=>{let tab=openTab();if(!tab){tab=this._openNoteTab(this._getNote(id),{select:false});this.noteTabs.set(id,tab);}return tab;};
+      const isOpen=!!openTab();
+      const sep=()=>popup.append(document.createXULElement("menuseparator"));
+      popup.append(this._folderSubmenu(this._folderOf(note0),folder=>this._moveNoteToFolder(id,folder),async()=>{const name=await this._newFolder();await this._moveNoteToFolder(id,name);}));
+      action("Add Split View",()=>{if(!ZLTabMenu.splitWith(ensureTab()))throw new Error("Select another tab first, then add the split view.");});
+      sep();
+      if(isOpen)action("Reload Note",()=>this._reloadNote(id));
+      action("Add to Essentials",()=>{if(!ZLTabMenu.essentials(ensureTab()))throw new Error("Could not add the note to Essentials.");});
+      sep();
       action("Open Note",()=>card.click());
+      sep();
       action("Change label…",()=>{
         // A text field on the tile, styled like Easel's. Enter or clicking away saves; Escape cancels.
         const strong=card.querySelector("strong");
@@ -1708,21 +1739,100 @@ return module.exports; })();
         input.addEventListener("click",stop);input.addEventListener("keydown",keys);input.addEventListener("blur",blur);
         input.addEventListener("input",()=>this._previewRename(id,input.value));
       });
-      action("Duplicate Note",()=>this._duplicateNote(id));
       action("Change Icon…",()=>{
-        const note=this._getNote(id);if(!note)return;
-        let tab=this.noteTabs.get(id);
-        if(!tab||!tab.isConnected){tab=this._openNoteTab(note,{select:false});this.noteTabs.set(id,tab);}
+        let tab=ensureTab();
         // Zen's own picker, anchored to the note's tab in the sidebar.
         if(!ZLTabMenu.changeIcon(tab,value=>this._setNoteIcon(id,value),[this._filledNoteIcon()]))this._libraryNotice("Use Change Icon… on the note's tab instead.");
       });
-      if(this._getNote(id)?.icon)action("Reset Icon",()=>this._setNoteIcon(id,null).then(()=>{for(const tab of gBrowser.tabs)if(tab.getAttribute("zen-notes-id")===id)this._markTab(tab,this._getNote(id));}));
-      popup.append(document.createXULElement("menuseparator"));
+      sep();
+      if(isOpen)action("Unload Note",()=>{const tab=openTab();if(tab)gBrowser.explicitUnloadTabs?.([tab]);});
+      action("Duplicate Note",()=>this._duplicateNote(id));
+      sep();
       action("Export Note…",()=>this._exportNote(id));
       action(Services.appinfo.OS==="Darwin"?"Show in Finder":"Show in Files",()=>this._revealNote(id));
-      popup.append(document.createXULElement("menuseparator"));
+      popup.append(this._containerSubmenu(this._ownerOf(id),cid=>this._transferNote(id,cid)));
+      sep();
+      if(isOpen){action("Close Note",()=>{const tab=openTab();if(tab)gBrowser.removeTab(tab);});sep();}
       action("Delete Note",()=>{ if (this._confirmDeleteNote(id)) return this._deleteNote(id); });
       popup.openPopupAtScreen(event.screenX,event.screenY,true);
+    }
+
+    // "Move to Folder" submenu: the Library's subfolders, then a line and "New Folder" (like the footer's +).
+    _folderSubmenu(current, onPick, onNew) {
+      const menu = document.createXULElement("menu"); menu.setAttribute("label", "Move to Folder"); menu.dataset.zenNotesMenu = "true";
+      const sub = document.createXULElement("menupopup"); menu.append(sub);
+      const add = (label, run) => sub.append(this._menuItem(label, async () => { try { await run(); this._notesLibrarySignature = null; this._refreshNotesLibrary(); } catch (error) { this._libraryNotice(error.message); } }));
+      if (current) add("Main folder", () => onPick(""));
+      for (const name of this._folderList) if (name !== current) add(name, () => onPick(name));
+      if (sub.children.length) sub.append(document.createXULElement("menuseparator"));
+      add("New Folder", onNew);
+      return menu;
+    }
+
+    // "Transfer to Container" submenu: the other containers (same list as "Open in New Container Tab").
+    _containerSubmenu(ownerState, onPick) {
+      const menu = document.createXULElement("menu"); menu.setAttribute("label", "Transfer to Container"); menu.dataset.zenNotesMenu = "true";
+      const sub = document.createXULElement("menupopup"); menu.append(sub);
+      for (const cid of this._allContainerIds()) {
+        if (this._stateFor(cid) === ownerState) continue;
+        const label = cid === 0 ? "No Container" : this._containerKey(cid) || `Container ${cid}`;
+        sub.append(this._menuItem(label, async () => { try { await onPick(cid); this._notesLibrarySignature = null; this._refreshNotesLibrary(); } catch (error) { this._libraryNotice(error.message); } }));
+      }
+      menu.disabled = !sub.children.length;
+      return menu;
+    }
+
+    async _moveNoteToFolder(id, folder) {
+      const note = this._getNote(id); if (!note) return;
+      await this._saveCurrentNow();
+      const root = this._ownerOf(id).dir;
+      const ownName = note.file || `${id}.md`, base = ownName.slice(ownName.lastIndexOf("/") + 1);
+      const wanted = folder ? `${folder}/${base}` : base;
+      if (wanted === ownName) return;
+      if (folder) await FileIO.makeDirectory(this._abs(folder, root), { createAncestors: true, ignoreExisting: true });
+      const name = await this._uniqueFileName(id, note.title || "New Note", wanted, root);
+      const from = this._abs(ownName, root);
+      if (await FileIO.exists(from)) await FileIO.move(from, this._abs(name, root));
+      note.file = name;
+      await this._enqueueWrite(() => this._writeIndex());
+      for (const win of Services.wm.getEnumerator("navigator:browser")) if (!win.closed && win.gZenNotes && win.gZenNotes !== this) await win.gZenNotes._loadIndex();
+    }
+
+    // Moves a note (its file and its entry) to another container's folder.
+    async _transferNote(id, containerId) {
+      const note = this._getNote(id); if (!note) return;
+      const from = this._ownerOf(id), to = this._stateFor(containerId);
+      if (from === to) return;
+      await this._saveCurrentNow();
+      await this._peekOthers();
+      await FileIO.makeDirectory(to.dir, { createAncestors: true, ignoreExisting: true });
+      const ownName = note.file || `${id}.md`, base = ownName.slice(ownName.lastIndexOf("/") + 1);
+      const name = await this._uniqueFileName(id, note.title || "New Note", base, to.dir);
+      const source = this._abs(ownName, from.dir);
+      if (await FileIO.exists(source)) await FileIO.move(source, this._abs(name, to.dir));
+      await this._enqueueWrite(async () => {
+        from.notes = from.notes.filter(item => item.id !== id);
+        note.file = name;
+        to.notes.push(note); to.hasIndex = true;
+        await this._writeIndex();
+        if (from !== this._active && from.hasIndex) await FileIO.writeUTF8(from.indexPath, JSON.stringify({ version: 4, notes: from.notes }, null, 2));
+      });
+      const tab = this.noteTabs.get(id); // a tab belongs to its container's space; the note continues in the other one
+      if (tab?.isConnected) gBrowser.removeTab(tab);
+      for (const win of Services.wm.getEnumerator("navigator:browser")) if (!win.closed && win.gZenNotes && win.gZenNotes !== this) { await win.gZenNotes._loadIndex(); await win.gZenNotes._reloadStates(); }
+    }
+
+    async _deleteFolder(name) {
+      const inside = this.notes.filter(note => note.file && note.file.startsWith(name + "/"));
+      const message = inside.length
+        ? `Delete the folder "${name}" and everything in it, including its ${inside.length} note${inside.length === 1 ? "" : "s"}? This cannot be undone.`
+        : `Delete the folder "${name}" and anything left in it? This cannot be undone.`;
+      if (!Services.prompt.confirm(window, "Delete folder", message)) return;
+      for (const note of inside) await this._deleteNote(note.id);
+      await FileIO.remove(this._abs(name), { recursive: true, ignoreAbsent: true });
+      this._folderList = this._folderList.filter(folder => folder !== name);
+      try { await window.ZenEaselLibrarySection?.renameFolder?.(name, ""); } catch (error) { console.error(LOG, error); } // its easels go back to the main folder
+      this._folderHeads.clear(); this._notesLibrarySignature = null; this._refreshNotesLibrary();
     }
 
     _destroyNotesLibrary() {
