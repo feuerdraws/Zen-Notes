@@ -738,6 +738,7 @@ return module.exports; })();
           if (!value || value.schema !== 1 || typeof value.noteId !== "string" ||
               !/^[a-zA-Z0-9_-]{1,100}$/.test(value.noteId) || typeof value.title !== "string" ||
               typeof value.body !== "string" || !Number.isFinite(Date.parse(value.updatedAt)) ||
+              (value.container !== undefined && (typeof value.container !== "string" || value.container.length > 100)) ||
               new TextEncoder().encode(JSON.stringify(value)).length > 65536 || /data:[^\s)]*;base64,/i.test(value.body)) throw new Error("Invalid or oversized note snapshot");
           // Validate that the immutable record ID matches its content.
           if (await controller()._syncSnapshotID(value) !== record.id) throw new Error("Snapshot ID mismatch");
@@ -757,13 +758,11 @@ return module.exports; })();
           const user = await controller()._notesSyncAccount().getSignedInUser();
           const bound = Services.prefs.getStringPref("zen-notes.sync-test.account", "");
           if (!user || !bound || user.uid !== bound) throw new Error("Re-enable Test Notes Sync for this Mozilla Account");
-          const holder = defaultController();
-          if (holder) await holder._captureSyncNotes(this, directory);
+          await controller()._captureSyncNotes(this, directory);
           await SyncEngine.prototype._syncStartup.call(this);
         },
         async _syncFinish() {
-          const holder = defaultController();
-          if (holder) await holder._restoreSyncNotes(directory);
+          await controller()._restoreSyncNotes(directory);
           await SyncEngine.prototype._syncFinish.call(this);
           this.notesTestCompleted = true;
         }
@@ -773,8 +772,29 @@ return module.exports; })();
       return Service;
     }
 
+    // A container's stable name (its number can differ between devices). The default container is "".
+    _containerKey(id) {
+      if (!id) return "";
+      try { return String(globalThis.ContextualIdentityService?.getUserContextLabel?.(id) || "").slice(0, 100); } catch { return ""; }
+    }
+    // Each state (folder) with the container key it belongs to; containers sharing one folder share one entry.
+    _syncStates() {
+      const found = new Map();
+      for (const id of this._allContainerIds()) {
+        const state = this._stateFor(id);
+        if (!found.has(state)) found.set(state, this._containerKey(id));
+      }
+      return found;
+    }
+    async _reloadStates() {
+      for (const state of this._states.values()) if (state !== this._active && !state.loaded) state.peeked = false;
+      await this._peekOthers();
+    }
+
     async _syncSnapshotID(value) {
-      const bytes = new TextEncoder().encode(JSON.stringify([value.schema, value.noteId, value.title, value.body, value.updatedAt]));
+      const fields = [value.schema, value.noteId, value.title, value.body, value.updatedAt];
+      if (value.container) fields.push(value.container); // default-container snapshots keep their original ids
+      const bytes = new TextEncoder().encode(JSON.stringify(fields));
       const digest = await crypto.subtle.digest("SHA-256", bytes);
       return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("").slice(0, 32);
     }
@@ -782,24 +802,28 @@ return module.exports; })();
     async _captureSyncNotes(engine, directory) {
       for (const win of Services.wm.getEnumerator("navigator:browser")) if (!win.closed && win.gZenNotes) await win.gZenNotes._saveCurrentNow();
       await this._loadIndex();
+      await this._reloadStates();
       let skipped = 0;
-      for (const note of this.notes) {
-        if (note.syncTestCopy || note.adopted) continue; // notes found in the folder already live there; the folder is their sync
-        const data = await this._readNote(note);
-        const value = { schema: 1, noteId: note.id, title: data.title, body: data.body, updatedAt: note.updatedAt || note.createdAt };
-        if (!Number.isFinite(Date.parse(value.updatedAt))) value.updatedAt = new Date().toISOString();
-        if (/data:[^\s)]*;base64,/i.test(value.body) || new TextEncoder().encode(JSON.stringify(value)).length > 65536) { skipped++; continue; }
-        // Reuse identical snapshots despite autosave timestamps changing.
-        let unchanged = false;
-        for (const path of await FileIO.getChildren(directory)) {
-          if (!/\/[a-f0-9]{32}\.json$/.test(path.replace(/\\/g, "/"))) continue;
-          const previous = JSON.parse(await FileIO.readUTF8(path));
-          if (previous.noteId === value.noteId && previous.title === value.title && previous.body === value.body) { unchanged = true; break; }
+      for (const [state, container] of this._syncStates()) {
+        for (const note of state.notes) {
+          if (note.syncTestCopy || note.adopted || note.quick) continue; // notes found in the folder already live there; the folder is their sync
+          const data = await this._readNote(note);
+          const value = { schema: 1, noteId: note.id, title: data.title, body: data.body, updatedAt: note.updatedAt || note.createdAt };
+          if (container) value.container = container;
+          if (!Number.isFinite(Date.parse(value.updatedAt))) value.updatedAt = new Date().toISOString();
+          if (/data:[^\s)]*;base64,/i.test(value.body) || new TextEncoder().encode(JSON.stringify(value)).length > 65536) { skipped++; continue; }
+          // Reuse identical snapshots despite autosave timestamps changing.
+          let unchanged = false;
+          for (const path of await FileIO.getChildren(directory)) {
+            if (!/\/[a-f0-9]{32}\.json$/.test(path.replace(/\\/g, "/"))) continue;
+            const previous = JSON.parse(await FileIO.readUTF8(path));
+            if (previous.noteId === value.noteId && previous.title === value.title && previous.body === value.body && (previous.container || "") === container) { unchanged = true; break; }
+          }
+          if (unchanged) continue;
+          const id = await this._syncSnapshotID(value);
+          await FileIO.writeUTF8(Paths.join(directory, id + ".json"), JSON.stringify(value));
+          await engine._tracker.addChangedID(id);
         }
-        if (unchanged) continue;
-        const id = await this._syncSnapshotID(value);
-        await FileIO.writeUTF8(Paths.join(directory, id + ".json"), JSON.stringify(value));
-        await engine._tracker.addChangedID(id);
       }
       this._syncTestSkipped = skipped;
     }
@@ -807,8 +831,10 @@ return module.exports; })();
     async _restoreSyncNotes(directory) {
       // Restore snapshots only after the download batch, so old revisions do not
       // overwrite newer ones. Different text is retained as an explicit copy.
+      // A snapshot goes back to the container it came from; one whose container does not exist here is left alone.
       await this._enqueueWrite(async () => {
         await this._loadIndex();
+        await this._reloadStates();
         const latest = new Map();
         for (const path of await FileIO.getChildren(directory)) {
           const id = Paths.filename(path).replace(/\.json$/, "");
@@ -817,9 +843,14 @@ return module.exports; })();
           const old = latest.get(value.noteId);
           if (!old || Date.parse(value.updatedAt) > Date.parse(old.value.updatedAt) || (value.updatedAt === old.value.updatedAt && id > old.id)) latest.set(value.noteId, { id, value });
         }
+        const byContainer = new Map();
+        for (const [state, container] of this._syncStates()) if (!byContainer.has(container)) byContainer.set(container, state);
         for (const { id, value } of latest.values()) {
+          const state = byContainer.get(value.container || "");
+          if (!state) continue; // that container does not exist on this device
+          const deletedPath = noteId => Paths.join(state.dir, ".deleted", `${noteId}.deleted`);
           // Respect local deletion markers; Sync cannot resurrect deleted notes.
-          if (await FileIO.exists(this._deletedPath(value.noteId))) continue;
+          if (await FileIO.exists(deletedPath(value.noteId))) continue;
           const existing = this._getNote(value.noteId);
           if (existing) {
             // This device already has the same or a newer edit: nothing to restore, and no conflicting copy.
@@ -828,27 +859,31 @@ return module.exports; })();
             const current = await this._readNote(existing);
             if (current.title === value.title && current.body === value.body) continue;
             const copyID = "sync-" + id;
-            if (this._getNote(copyID) || await FileIO.exists(this._deletedPath(copyID))) continue;
+            if (this._getNote(copyID) || await FileIO.exists(deletedPath(copyID))) continue;
             const title = value.title + " (Sync copy)";
             const copy = { id: copyID, title, createdAt: value.updatedAt, updatedAt: value.updatedAt, syncTestCopy: true };
+            await FileIO.makeDirectory(state.dir, { createAncestors: true, ignoreExisting: true });
+            state.notes.push(copy); // listed first so the file is written inside this container's folder
             await this._writeNoteFile(copyID, title, value.body, copy);
-            this.notes.push(copy);
+            state.hasIndex = true;
           } else {
             // Already here under another id (same title and text): nothing to restore.
             let twin = false;
-            for (const other of this.notes) {
+            for (const other of state.notes) {
               if (other.quick || other.title !== value.title) continue;
               if ((await this._readNote(other)).body === value.body) { twin = true; break; }
             }
             if (twin) continue;
             const added = { id: value.noteId, title: value.title, createdAt: value.updatedAt, updatedAt: value.updatedAt };
+            await FileIO.makeDirectory(state.dir, { createAncestors: true, ignoreExisting: true });
+            state.notes.push(added);
             await this._writeNoteFile(value.noteId, value.title, value.body, added);
-            this.notes.push(added);
+            state.hasIndex = true;
           }
         }
         await this._writeIndex();
       });
-      for (const win of Services.wm.getEnumerator("navigator:browser")) if (!win.closed && win.gZenNotes && win.gZenNotes !== this) await win.gZenNotes._loadIndex();
+      for (const win of Services.wm.getEnumerator("navigator:browser")) if (!win.closed && win.gZenNotes && win.gZenNotes !== this) { await win.gZenNotes._loadIndex(); await win.gZenNotes._reloadStates(); }
     }
 
     async _toggleNotesSync() {
@@ -1189,7 +1224,8 @@ return module.exports; })();
         const head = this._html("div"); head.className = "zl-folder-head"; const label = this._html("span"); label.textContent = folder; head.append(label);
         head.append(this._folderNewButton(folder));
         const grid = this._html("div"); grid.className = "zen-library-media-grid zn-library-notes-grid"; grid.append(...cardsFor(list));
-        blocks.push(head, grid);
+        const block = this._html("div"); block.className = "zl-folder-block"; block.append(head, grid);
+        blocks.push(block);
       }
       this._notesLibraryFolders?.replaceChildren(...blocks);
     }
@@ -2489,7 +2525,10 @@ return module.exports; })();
       await this._saveCurrentNow();
       const now = new Date().toISOString();
       const note = { id: this._makeId(), title: "New Note", createdAt: now, updatedAt: now };
-      if (typeof folder === "string" && folder) note.file = `${folder}/${note.id}.md`;
+      if (typeof folder === "string" && folder) {
+        note.file = `${folder}/${note.id}.md`;
+        await FileIO.makeDirectory(this._abs(folder), { createAncestors: true, ignoreExisting: true });
+      }
       await this._writeNoteFile(note.id, "New Note", "", note);
       this.notes.unshift(note);
       await this._writeIndex();
